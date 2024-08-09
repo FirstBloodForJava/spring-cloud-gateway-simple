@@ -17,8 +17,8 @@ public class BeanConfig {
      * @param builder
      * @return
      */
-    @Bean
-    public RouteLocator myRoutes(RouteLocatorBuilder builder) {
+    //@Bean
+    public RouteLocator myRoutes1(RouteLocatorBuilder builder) {
         return builder.routes()
                 .route(p -> p
                         .path("/get")
@@ -26,4 +26,25 @@ public class BeanConfig {
                         .uri("http://httpbin.org:80"))
                 .build();
     }
+
+    /**
+     * 超时时间多久?
+     * @param builder
+     * @return
+     */
+    //@Bean
+    public RouteLocator myRoutes2(RouteLocatorBuilder builder) {
+        return builder.routes()
+                .route(p -> p
+                        .path("/get")
+                        .filters(f -> f.addRequestHeader("Hello", "World"))
+                        .uri("http://httpbin.org:80"))
+                .route(p -> p
+                        .host("*.circuitbreaker.com")
+                        .filters(f -> f.circuitBreaker(config -> config.setName("mycmd")))
+                        .uri("http://httpbin.org:80")).
+                build();
+    }
+
+
 }
