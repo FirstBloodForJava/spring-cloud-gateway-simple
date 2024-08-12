@@ -46,5 +46,38 @@ public class BeanConfig {
                 build();
     }
 
+    //@Bean
+    public RouteLocator myRoutes3(RouteLocatorBuilder builder) {
+        return builder.routes()
+                .route(p -> p
+                        .path("/get")
+                        .filters(f -> f.addRequestHeader("Hello", "World"))
+                        .uri("http://httpbin.org:80"))
+                .route(p -> p
+                        .host("*.circuitbreaker.com")
+                        .filters(f -> f.circuitBreaker(config -> config
+                                .setName("mycmd")
+                                .setFallbackUri("forward:/demo")))
+                        .uri("http://httpbin.org:80"))
+                .build();
+    }
+
+    @Bean
+    public RouteLocator myRoutes4(RouteLocatorBuilder builder, UriConfiguration uriConfiguration) {
+        String httpUri = uriConfiguration.getHttpbin();
+        return builder.routes()
+                .route(p -> p
+                        .path("/get")
+                        .filters(f -> f.addRequestHeader("Hello", "World"))
+                        .uri(httpUri))
+                .route(p -> p
+                        .host("*.circuitbreaker.com")
+                        .filters(f -> f
+                                .circuitBreaker(config -> config
+                                        .setName("mycmd")
+                                        .setFallbackUri("forward:/fallback")))
+                        .uri(httpUri))
+                .build();
+    }
 
 }

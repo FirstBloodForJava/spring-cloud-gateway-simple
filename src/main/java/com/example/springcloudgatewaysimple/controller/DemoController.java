@@ -11,7 +11,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class DemoController {
 
     @GetMapping("/demo")
-    public static String demo(){
+    public String demo(){
         return "demo";
     }
 }
