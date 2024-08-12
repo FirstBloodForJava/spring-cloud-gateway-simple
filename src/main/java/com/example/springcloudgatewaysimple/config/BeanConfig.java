@@ -75,7 +75,7 @@ public class BeanConfig {
                         .filters(f -> f
                                 .circuitBreaker(config -> config
                                         .setName("mycmd")
-                                        .setFallbackUri("forward:/fallback")))
+                                        .setFallbackUri("forward:/demo")))
                         .uri(httpUri))
                 .build();
     }
