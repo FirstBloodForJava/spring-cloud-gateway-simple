@@ -1,7 +1,10 @@
 package com.example.springcloudgatewaysimple.config;
 
+import com.example.springcloudgatewaysimple.filter.CustomGlobalFilter;
+import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.cloud.gateway.route.RouteLocator;
 import org.springframework.cloud.gateway.route.builder.RouteLocatorBuilder;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
@@ -77,6 +80,11 @@ public class BeanConfig {
                                         .setFallbackUri("forward:/demo")))
                         .uri(httpUri))
                 .build();
+    }
+
+    @Bean
+    public GlobalFilter customFilter() {
+        return new CustomGlobalFilter();
     }
 
 }
