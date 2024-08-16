@@ -1,0 +1,21 @@
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: myRoute
+          uri: http://httpbin.org/get
+          predicates:
+            - Path=/get/**
+      metrics:
+        enabled: true
+  application:
+    name: spring-cloud-gateway-simple
+management:
+  endpoints:
+    web:
+      exposure:
+        include: ["metrics", "prometheus"]
+  metrics:
+    export:
+      prometheus:
+        enabled: true
