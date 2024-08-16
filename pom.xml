@@ -72,6 +72,15 @@
             <scope>runtime</scope>
         </dependency>
 
+        <!-- micrometer 核心包，按需引入，使用 Meter 注解或手动埋点时需要 -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-core</artifactId>
+        </dependency>
+
+
+
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
