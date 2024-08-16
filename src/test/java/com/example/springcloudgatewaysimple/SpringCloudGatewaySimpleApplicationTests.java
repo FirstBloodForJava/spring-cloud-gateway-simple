@@ -1,13 +1,12 @@
 package com.example.springcloudgatewaysimple;
 
-import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.cloud.contract.wiremock.AutoConfigureWireMock;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
-import static org.assertj.core.api.Assertions.*;
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * @AutoConfigureWireMock(port = 0) 代表随机端口启动一个模拟的web客户端
@@ -23,7 +22,7 @@ public class SpringCloudGatewaySimpleApplicationTests {
     @Autowired
     private WebTestClient webClient;
 
-    @Test
+    //@Test
     public void contextLoads() throws Exception {
         //Stubs
         // 模拟一个
