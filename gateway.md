@@ -33,6 +33,14 @@ https://start.spring.io/
 
 可能有一些同步库的依赖不能使用(例如redis)，因为这个是基于SpringBoot2.x版本、SpringWebFlux、Project Reactor构建的。
 
+~~~bash
+# 下载依赖的源码
+mvn dependency:resolve -Dclassifier=sources
+
+~~~
+
+
+
 
 
 ## 2.名词解释
@@ -323,6 +331,10 @@ spring:
 
 
 ### 5.8.Path
+
+//delay/\*\*和/delay/\*\*
+
+//delya/**不会匹配到gateway的/delay/4请求，会匹配//delay/4请求。
 
 ~~~yaml
 spring:
@@ -622,3 +634,1625 @@ spring:
 
 ### 6.4.DedupeResponseHeader
 
+参数有name(list)，strategy(默认RETAIN_FIRST、RETAIN_LAST、RETAIN_UNIQUE，可以不填)。
+
+~~~yml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: dedupe_response_header_route
+          uri: http://httpbin.org
+          filters:
+            - AddResponseHeader=Access-Control-Allow-Credentials, false
+            - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
+          predicates:
+            - name: Path
+              args:
+                pattern: /**
+
+~~~
+
+这里有如果包含多个请求头key，key之间用空格分割，与其他不同。
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: dedupe_response_header_route
+          uri: http://httpbin.org
+          filters:
+            - name: AddResponseHeader
+              args:
+                name: Access-Control-Allow-Credentials
+                value: 100
+            - name: DedupeResponseHeader
+              args:
+                name: Access-Control-Allow-Credentials Access-Control-Allow-Origin
+                strategy: RETAIN_FIRST
+          predicates:
+            - name: Path
+              args:
+                pattern: /**
+
+~~~
+
+说明AddResponseHeader添加的响应头比获取请求响应的头要早。
+
+![image-20240813090204930](http://47.101.155.205/image-20240813090204930.png)
+
+![image-20240813090411387](http://47.101.155.205/image-20240813090411387.png)
+
+![image-20240813090509562](http://47.101.155.205/image-20240813090509562.png)
+
+
+
+### 6.5.CircuitBreaker 
+
+断路器应该是类似与JDBC模式，spring-cloud-gateway定义好了断路器的接口，只要引入相关的实现类(即Jdbc的驱动)，就可以实现断路器功能了。
+
+Spring Cloud supports Resilience4J就是开箱即用。
+
+断路器实现相关文档：https://cloud.spring.io/spring-cloud-circuitbreaker/reference/html/spring-cloud-circuitbreaker.html
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: circuitbreaker_route
+          uri: http://httpbin.org
+          predicates:
+            - Path=/delay/{int}
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: myCircuitBreaker
+                fallbackUri: forward:/demo
+            - RewritePath=/delay/4, /delay/5
+
+~~~
+
+~~~java
+@Bean
+public RouteLocator routes(RouteLocatorBuilder builder) {
+	return builder.routes()
+                .route("circuitbreaker_route",
+                        r -> r.path("/delay/{int}")
+                                .filters(f ->
+                                        f.circuitBreaker(c -> c.setName("myCircuitBreaker").setFallbackUri("forward:/demo"))
+                                                .rewritePath("/delay/4", "/delay/5")).
+                                uri("http://httpbin.org"))
+                .build();
+}
+
+~~~
+
+把转发的请求拦截，在转发出去。
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: ingredients
+          uri: http://httpbin.org
+          predicates:
+            - Path=/delay/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: fetchIngredients
+                fallbackUri: forward:/get
+        - id: ingredients-fallback
+          uri: http://httpbin.org
+          predicates:
+            - Path=/get
+
+~~~
+
+
+
+#### 6.5.1.配置状态码代表启用断路器
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: ingredients
+          uri: http://httpbin.org
+          predicates:
+            - Path=/delay/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: fetchIngredients
+                fallbackUri: forward:/get
+                statusCodes:
+                  - 404
+                  - "NOT_FOUND"
+        - id: ingredients-fallback
+          uri: http://httpbin.org
+          predicates:
+            - Path=/get
+
+~~~
+
+~~~java
+@Bean
+public RouteLocator routes(RouteLocatorBuilder builder) {
+	return builder.routes()
+                .route("circuitbreaker_route",
+                        r -> r.path("/delay/{int}")
+                                .filters(f ->
+                                        f.circuitBreaker(c -> c.setName("myCircuitBreaker").setFallbackUri("forward:/demo").addStatusCode("INTERNAL_SERVER_ERROR"))
+                                                .rewritePath("/delay/4", "/delay/5")).
+                                uri("http://httpbin.org"))
+                .build();
+}
+
+~~~
+
+
+
+### 6.6.FallbackHeaders
+
+熔断转发的请求中添加异常信息
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: ingredients
+          uri: http://httpbin.org
+          predicates:
+            - Path=/delay/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: fetchIngredients
+                fallbackUri: forward:/get
+        - id: ingredients-fallback
+          uri: http://httpbin.org
+          predicates:
+            - Path=/get
+          filters:
+            - name: FallbackHeaders
+              args:
+                executionExceptionTypeHeaderName: Test-Header
+
+~~~
+
+![image-20240813101642096](http://47.101.155.205/image-20240813101642096.png)
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: ingredients
+          uri: http://httpbin.org
+          predicates:
+            - Path=/delay/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: fetchIngredients
+                fallbackUri: forward:/get
+        - id: ingredients-fallback
+          uri: http://httpbin.org
+          predicates:
+            - Path=/get
+          filters:
+            - name: FallbackHeaders
+              args:
+                executionExceptionTypeHeaderName: Execution-Exception-Type
+                executionExceptionMessageHeaderName: Execution-Exception-Message
+                rootCauseExceptionTypeHeaderName: Root-Cause-Exception-Type
+                rootCauseExceptionMessageHeaderName: Root-Cause-Exception-Message
+
+~~~
+
+
+
+![image-20240813101939821](http://47.101.155.205/image-20240813101939821.png)
+
+
+
+### 6.7.MapRequestHeader
+
+将到gateway的请求头中的key(fromHeader)的value携带到下游的请求头的key(toHeader)的value，如果fromHeader不存在，没有任何影响。
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: map_request_header_route
+          uri: http://httpbin.org
+          filters:
+            - MapRequestHeader=Blue, X-Request-Red
+          predicates:
+            - name: Path
+              args:
+                patterns: /get
+
+~~~
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: map_request_header_route
+          uri: http://httpbin.org
+          filters:
+            - name: MapRequestHeader
+              args:
+                fromHeader: Blue
+                toHeader: X-Request-Red
+          predicates:
+            - name: Path
+              args:
+                patterns: /get
+
+~~~
+
+
+
+![](http://47.101.155.205/image-20240813105448085.png)
+
+
+
+### 6.8.PrefixPath
+
+把代理的请求添加前缀发送到下游。
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: prefixpath_route
+          uri: http://httpbin.org
+          filters:
+            - PrefixPath=/delay
+          predicates:
+            - name: Path
+              args:
+                patterns: /*
+
+~~~
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: prefixpath_route
+          uri: http://httpbin.org
+          filters:
+            - name: PrefixPath
+              args:
+                prefix: /delay
+          predicates:
+            - name: Path
+              args:
+                patterns: /*
+
+~~~
+
+
+
+![image-20240813110408161](http://47.101.155.205/image-20240813110408161.png)
+
+
+
+### 6.9.PreserveHostHeader
+
+请求头的Host记录的是到达gateway之前的http发起客户端的host，而不是gateway发起http请求的host地址。
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: preserve_host_route
+          uri: http://httpbin.org
+          filters:
+            - PreserveHostHeader
+          predicates:
+            - name: Path
+              args:
+                patterns: /get
+
+~~~
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: preserve_host_route
+          uri: http://httpbin.org
+          filters:
+            - name: PreserveHostHeader
+          predicates:
+            - name: Path
+              args:
+                patterns: /get
+
+~~~
+
+
+
+
+
+![image-20240813111347589](http://47.101.155.205/image-20240813111347589.png)
+
+
+
+### 6.10.RequestRateLimiter
+
+实现KeyResolver接口注入容器，通过request中的哪些属性来生成限流key，来限制请求速率(使用默认的策略，未开启不拒绝，请求响应403)。
+
+~~~java
+// 使用客户端ip地址来限流
+@Bean
+KeyResolver userKeyResolver() {
+	return exchange -> Mono.just(exchange.getRequest().getRemoteAddress().getAddress().getHostAddress());
+    }
+
+~~~
+
+
+
+spring.cloud.gateway.filter.request-rate-limiter.deny-empty-key=true/false是否拒绝空的匹配
+
+spring.cloud.gateway.filter.request-rate-limiter.empty-key-status-code拒绝的状态码
+
+需要引入spring-boot-starter-data-redis-reactive依赖。
+
+限速算法：https://en.wikipedia.org/wiki/Token_bucket
+
+~~~pom
+<dependency>
+	<groupId>org.springframework.boot</groupId>
+	<artifactId>spring-boot-starter-data-redis-reactive</artifactId>
+</dependency>
+
+~~~
+
+redis-rate-limiter.replenishRate：表示每秒令牌桶中能容纳的令牌数。
+
+redis-rate-limiter.burstCapacity：表示桶的最大容量。
+
+redis-rate-limiter.requestedTokens：每个请求消耗的令牌数，默认1
+
+出现配置速率和实际请求不符的原因是没有配置redis的连接信息。
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: requestratelimiter_route
+          uri: http://localhost:8080/
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 1
+                redis-rate-limiter.burstCapacity: 60
+                redis-rate-limiter.requestedTokens: 60
+            - name: PrefixPath
+              args:
+                prefix: /demo
+          predicates:
+            - name: Path
+              args:
+                patterns: /get
+      filter:
+        request-rate-limiter:
+          deny-empty-key: false
+
+~~~
+
+~~~java
+@Bean
+KeyResolver userKeyResolver() {
+	return exchange -> Mono.just(exchange.getRequest().getQueryParams().getFirst("user"));
+}
+
+~~~
+
+![image-20240813142105464](http://47.101.155.205/image-20240813142105464.png)
+
+
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: requestratelimiter_route
+          uri: http://localhost:8080/
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 10
+                redis-rate-limiter.burstCapacity: 20
+                redis-rate-limiter.requestedTokens: 1
+            - name: PrefixPath
+              args:
+                prefix: /demo
+          predicates:
+            - name: Path
+              args:
+                patterns: /get
+      filter:
+        request-rate-limiter:
+          deny-empty-key: false
+  redis:
+    database: 0
+    cluster:
+      nodes:
+        - 192.168.120.110:26379
+        - 192.168.120.110:27379
+        - 192.168.120.111:26379
+        - 192.168.120.111:27379
+        - 192.168.120.112:26379
+        - 192.168.120.112:27379
+    password: epredis
+
+~~~
+
+![image-20240813144227463](http://47.101.155.205/image-20240813144227463.png)
+
+
+
+#### 6.10.1.自定义方式
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+      - id: requestratelimiter_route
+        uri: https://example.org
+        filters:
+        - name: RequestRateLimiter
+          args:
+            rate-limiter: "#{@myRateLimiter}"
+            key-resolver: "#{@userKeyResolver}"
+
+~~~
+
+
+
+### 6.11.RedirectTo
+
+重定向到http://httpbin.org/get地址，这里配置的uri路径不生效。
+
+uri不换成这样uri: no://op，如果filters中的url是相对路径，则会映射到当前host+相对路径
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: prefixpath_route
+          uri: https://example.org
+          filters:
+            - RedirectTo=302, http://httpbin.org/get
+          predicates:
+            - name: Path
+              args:
+                patterns: /get
+
+~~~
+
+![image-20240813150713446](http://47.101.155.205/image-20240813150713446.png)
+
+![image-20240813151442642](http://47.101.155.205/image-20240813151442642.png)
+
+
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: prefixpath_route
+          uri: no://op
+          filters:
+            - name: RedirectTo
+              args:
+                status: 302
+                url: demo/get
+          predicates:
+            - name: Path
+              args:
+                patterns: /get
+
+~~~
+
+![image-20240813153002214](http://47.101.155.205/image-20240813153002214.png)
+
+
+
+### 6.12.RemoveRequestHeader
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: removerequestheader_route
+          uri: http://httpbin.org
+          filters:
+            - RemoveRequestHeader=X-Request-Foo
+          predicates:
+            - name: Path
+              args:
+                patterns: /get
+
+~~~
+
+展开配置仅支持name对应的value被移除，不支持多个key移除。
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: removerequestheader_route
+          uri: http://httpbin.org
+          filters:
+            - name: RemoveRequestHeader
+              args:
+                name: X-Request-Foo
+          predicates:
+            - name: Path
+              args:
+                patterns: /get
+
+~~~
+
+
+
+![image-20240814162431758](http://47.101.155.205/image-20240814162431758.png)
+
+
+
+
+
+### 6.13.RemoveResponseHeader
+
+移除响应头中任何key
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: removeresponseheader_route
+          uri: http://httpbin.org
+          filters:
+            - RemoveResponseHeader=Date
+          predicates:
+            - name: Path
+              args:
+                patterns: /get
+
+~~~
+
+![image-20240814163503850](http://47.101.155.205/image-20240814163503850.png)
+
+通过spring.cloud.gateway.default-filters这个配置过滤器，应用在所有的route上。
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: defaultFilterRoute1
+          uri: http://httpbin.org
+          predicates:
+            - name: Path
+              args:
+                patterns: /get
+        - id: defaultFilterRoute2
+          uri: http://httpbin.org
+          predicates:
+            - name: Path
+              args:
+                patterns: /delay/{int}
+      default-filters:
+        - name: RemoveResponseHeader
+          args:
+            name: Date
+            
+~~~
+
+
+
+
+
+### 6.14.RemoveRequestParameter
+
+移除请求参数
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: removerequestparameter_route
+          uri: http://httpbin.org
+          filters:
+            - RemoveRequestParameter=user
+          predicates:
+            - name: Path
+              args:
+                patterns: /get
+
+~~~
+
+![image-20240814164454175](http://47.101.155.205/image-20240814164454175.png)
+
+![image-20240814164509193](http://47.101.155.205/image-20240814164509193.png)
+
+
+
+### 6.15.RewritePath
+
+重写转发请求路径。
+
+需要regexp(待匹配的正则表达式)和replacement(替换后的表达式)两个参数。
+
+匹配/get/开头的字符串，将/get/后面部分捕获到segmengt捕获组中。
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: rewritepath_route
+          uri: http://httpbin.org
+          predicates:
+            - Path=/get/**
+          filters:
+            - RewritePath=/get/?(?<segment>.*), /$\{segment}
+
+~~~
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: rewritepath_route
+          uri: http://httpbin.org
+          predicates:
+            - Path=/get/**
+          filters:
+            - name: RewritePath
+              args:
+                regexp: /get/?(?<segment>.*)
+                replacement: /$\{segment}
+
+~~~
+
+
+
+![image-20240814172718935](http://47.101.155.205/image-20240814172718935.png)
+
+
+
+### 6.16.RewriteLocationResponseHeader
+
+支持stripVersionMode, locationHeaderName, hostValue, protocolsRegex四个参数，用来修改请求响应头的Location的value。
+
+作用是将locationHeaderName对应的值的响应头重写，如果协议匹配，host值替换成hostValue的值。
+
+1. stripVersionMode：有可选项NEVER_STRIP、AS_IN_REQUEST(默认)、ALWAYS_STRIP。请求的uri中以/v数字开始，决定是否把请求头的版本替换
+   1. NEVER_STRIP：不管请求中是否有uri请求头的版本号从不移除；
+   2. AS_IN_REQUEST：请求的uri中没有有版本号，才移除请求头中版本号；
+   3. ALWAYS_STRIP：不管请求里是否有版本号，都移除请求头的value的版本号。
+2. locationHeaderName：获取响应头key的name
+3. hostValue：配置的hostValue，默认为请求头的Host的value
+4. protocolsRegex：有效的正则表达式，用来匹配协议，如果协议不匹配，过滤器什么都不做，默认是http|https|ftp|ftps()。
+
+~~~txt
+替换的正则表达式
+(?<=^(?:protocolsRegex)://)[^:/]+(?::\d+)?(?=/)
+(?<=^(?:https?|ftps?)://)[^:/]+(?::\d+)?(?=/)
+(?<=^(?:protocolsRegex)://)[^:/]+(?::\d+)?(?:/v\d+)?(?=/)
+(?<=^(?:https?|ftps?)://)[^:/]+(?::\d+)?(?:/v\d+)?(?=/)
+https?表示匹配http或https，因为?代表前面的表达式出现一次或零次
+
+请求版本号校验表达式
+^/v\\d+/.*
+
+~~~
+
+
+
+
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: rewritelocationresponseheader_route
+          uri: http://httpbin.org
+          filters:
+            - AddResponseHeader=TEST, http://localhost:8080/v1/demo/get
+            - RewriteLocationResponseHeader=ALWAYS_STRIP , TEST, httpbin.org, http|https|ftp|ftps
+          predicates:
+            - name: Path
+              args:
+                patterns: /get
+
+~~~
+
+localhost:8080替换成了httpbin.org，去掉了版本。
+
+![image-20240815112620809](http://47.101.155.205/image-20240815112620809.png)
+
+
+
+### 6.17.RewriteResponseHeader
+
+支持参数：name, regexp, replacement。
+
+响应头name的value，匹配regexp正则表达式的字符串部分都替换成replacemengt。
+
+如果replacement需要用到$字符，需要用$\表示。
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: rewriteresponseheader_route
+          uri: http://httpbin.org
+          filters:
+            - AddResponseHeader=X-Response-Red, password=1234&
+            - RewriteResponseHeader=X-Response-Red, , password=[^&]+, password=***
+          predicates:
+            - name: Path
+              args:
+                patterns: /get
+
+~~~
+
+![image-20240815145609596](http://47.101.155.205/image-20240815145609596.png)
+
+
+
+### 6.18.SaveSession
+
+有使用SpringSecurity和SpringSession，将安全信息发送到下游请求。
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+      - id: save_session
+        uri: https://example.org
+        predicates:
+        - Path=/foo/**
+        filters:
+        - SaveSession
+
+~~~
+
+
+
+
+
+### 6.19.SecureHeaders
+
+为了http响应头添加参数：https://blog.appcanary.com/2017/http-security-headers.html
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: route
+          uri: http://httpbin.org
+          filters:
+            - name: SecureHeaders
+          predicates:
+            - name: Path
+              args:
+                patterns: /get
+      filter:
+        secure-headers:
+          disable: x-frame-options,strict-transport-security # 禁用key
+
+~~~
+
+![image-20240815153232147](http://47.101.155.205/image-20240815153232147.png)
+
+![image-20240815153128019](http://47.101.155.205/image-20240815153128019.png)
+
+
+
+### 6.20.SetPath
+
+修改到下游的路径。
+
+支持参数template。
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: setpath_route
+          uri: http://httpbin.org
+          predicates:
+            - Path=/get/{segment}
+          filters:
+            - SetPath=/{segment}
+
+~~~
+
+![image-20240815153739787](http://47.101.155.205/image-20240815153739787.png)
+
+
+
+### 6.21.SetRequestHeader
+
+支持参数name、value。
+
+修改请求头的key的value，替换所有。
+
+支持动态替换匹配Host或Path的遍历。
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: setrequestheader_route
+          uri: http://httpbin.org
+          filters:
+            - SetRequestHeader=X-Request-Red, Blue
+          predicates:
+            - name: Path
+              args:
+                patterns: /get
+
+~~~
+
+![image-20240815154131705](http://47.101.155.205/image-20240815154131705.png)
+
+
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+      - id: setrequestheader_route
+        uri: https://example.org
+        predicates:
+        - Host: {segment}.myhost.org
+        filters:
+        - SetRequestHeader=foo, bar-{segment}
+
+~~~
+
+
+
+
+
+### 6.22.SetResponseHeader
+
+支持参数name、value。
+
+修改响应头的key的value，替换所有。
+
+支持动态替换匹配Host或Path的遍历。
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: setresponseheader_route
+          uri: http://httpbin.org
+          filters:
+            - SetResponseHeader=Date, Blue
+          predicates:
+            - name: Path
+              args:
+                patterns: /get
+
+~~~
+
+![image-20240815154646877](http://47.101.155.205/image-20240815154646877.png)
+
+
+
+### 6.23.SetStatus
+
+支持参数：status。
+
+必须是一个有效的状态，在org.springframework.http.HttpStatus枚举中。
+
+可以是状态码，也可以是单个枚举属性名。
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: setstatusstring_route
+          uri: http://httpbin.org
+          filters:
+            - SetStatus=BAD_REQUEST
+          predicates:
+            - name: Path
+              args:
+                patterns: /get
+        - id: setstatusint_route
+          uri: http://httpbin.org
+          filters:
+            - SetStatus=401
+          predicates:
+            - name: Path
+              args:
+                patterns: /delay/1
+
+~~~
+
+
+
+![image-20240815155600898](http://47.101.155.205/image-20240815155600898.png)
+
+
+
+可以通过配置spring.cloud.gateway.set-status.original-status-header-name=original-http-status，将代理请求响应的状态码放在响应头中，key为original-http-status
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: setstatusstring_route
+          uri: http://httpbin.org
+          filters:
+            - SetStatus=BAD_REQUEST
+          predicates:
+            - name: Path
+              args:
+                patterns: /get
+        - id: setstatusint_route
+          uri: http://httpbin.org
+          filters:
+            - SetStatus=401
+          predicates:
+            - name: Path
+              args:
+                patterns: /delay/1
+      set-status:
+        original-status-header-name: original-http-status
+
+~~~
+
+
+
+![image-20240815155826805](http://47.101.155.205/image-20240815155826805.png)
+
+
+
+### 6.24.StripPrefix
+
+一个参数：parts
+
+跳过几个/*，截取调几个再转发请求。
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: nameRoot
+          uri: http://httpbin.org
+          predicates:
+            - Path=/name/**
+          filters:
+            - StripPrefix=2
+
+~~~
+
+![image-20240815160407302](http://47.101.155.205/image-20240815160407302.png)
+
+
+
+### 6.25.Retry
+
+重试，支持以下参数：
+
+1. retries：重试次数；
+2. statuses：什么样的状态码应该重试(多个)；
+3. methods：什么样的方法应该重试(多个)；
+4. series：什么样的HttpStatus.Series应该重试(多个)；
+5. exceptions：什么样的异常应该重试(多个)；
+6. backoff：重试因子，控制重试间隔时间。
+
+启用该过滤器的默认配置：
+
+1. retries：3；
+2. series：5xx；
+3. methods：GET；
+4. exceptions：IOException，TimeoutException；
+5. backoff：空。
+
+
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: retry_test
+          uri: http://httpbin.org/get # 在转发请求时/get会被去掉
+          predicates:
+            - Path=/get
+          filters:
+            - name: Retry
+              args:
+                retries: 3
+                statuses: BAD_GATEWAY
+                methods: GET,POST
+                backoff:
+                  firstBackoff: 10ms
+                  maxBackoff: 50ms
+                  factor: 2
+                  basedOnPreviousValue: false
+
+~~~
+
+![image-20240815163438183](http://47.101.155.205/image-20240815163438183.png)
+
+### 6.26.RequestSize
+
+限制到下游请求的请求大小，默认单位B，可以添加后缀KB/MB表示单位。
+
+没有配置，请求大小默认时5MB。超出大小，返回状态码为413。
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+      - id: request_size_route
+        uri: http://localhost:8080/upload
+        predicates:
+        - Path=/upload
+        filters:
+        - name: RequestSize
+          args:
+            maxSize: 5000000
+
+~~~
+
+![image-20240815163924559](http://47.101.155.205/image-20240815163924559.png)
+
+
+
+
+
+### 6.27.SetRequestHostHeader
+
+修改已经存在的请求头key为Host的value。
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: set_request_host_header_route
+          uri: http://httpbin.org
+          predicates:
+            - Path=/get
+          filters:
+            - name: SetRequestHostHeader
+              args:
+                host: example.org
+
+~~~
+
+
+
+![image-20240815164051153](http://47.101.155.205/image-20240815164051153.png)
+
+
+
+### 6.28.ModifyRequestBody
+
+修改请求体在发送请求之前。
+
+只能使用代码实现，Java DSL。需要怎加null判断处理。
+
+~~~java
+@Bean
+public RouteLocator routes(RouteLocatorBuilder builder) {
+    return builder.routes()
+        .route("rewrite_request_obj", r -> r.path("/**")
+            .filters(f -> f.prefixPath("/delay")
+                .modifyRequestBody(String.class, Hello.class, MediaType.APPLICATION_JSON_VALUE,
+                    (exchange, s) -> s != null ? Mono.just(new Hello(s.toUpperCase())): Mono.empty())).uri("http://httpbin.org"))
+        .build();
+}
+
+static class Hello {
+    String message;
+
+    public Hello() { }
+
+    public Hello(String message) {
+        this.message = message;
+    }
+
+    public String getMessage() {
+        return message;
+    }
+
+    public void setMessage(String message) {
+        this.message = message;
+    }
+}
+
+~~~
+
+![image-20240815165320644](http://47.101.155.205/image-20240815165320644.png)
+
+
+
+### 6.29.ModifyResponseBody
+
+在返回请求到客户端之前，修改响应体。
+
+只能使用代码实现，Java DSL。需要怎加null判断处理。
+
+~~~java
+// 这里不用一定要挂在一个过滤器下面
+@Bean
+public RouteLocator routes(RouteLocatorBuilder builder) {
+	return builder.routes()
+        .route("rewrite_response_upper", r -> r.path("/get")
+               .filters(f -> f.modifyResponseBody(String.class, String.class, 
+                                                  (exchange, s) -> Mono.just(s.toUpperCase()))).uri("http://httpbin.org"))
+        .build();
+}
+
+~~~
+
+![image-20240815170320240](http://47.101.155.205/image-20240815170320240.png)
+
+
+
+### 6.30.Relay
+
+抓取oauth2的token到下游。
+
+https://github.com/spring-cloud-samples/sample-gateway-oauth2login
+
+~~~pom
+<dependency>
+	<groupId>org.springframework.boot</groupId>
+	<artifactId>spring-boot-starter-oauth2-client</artifactId>
+</dependency>
+
+~~~
+
+~~~java
+@Bean
+public RouteLocator customRouteLocator(RouteLocatorBuilder builder) {
+	return builder.routes()
+        .route("resource", r -> r.path("/get")
+               .filters(f -> f.tokenRelay())
+               .uri("http://httpbin.org"))
+        .build();
+}
+
+~~~
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+      - id: resource
+        uri: http://httpbin.org
+        predicates:
+        - Path=/get
+        filters:
+        - TokenRelay=
+
+~~~
+
+
+
+![image-20240815171541757](http://47.101.155.205/image-20240815171541757.png)
+
+
+
+
+
+### 6.31.CacheRequestBody
+
+提起请求body至ServerWebExchange.getAttributes()中，key为ServerWebExchangeUtils.CACHED_REQUEST_BODY_ATTR。
+
+仅适用于http和https请求。
+
+~~~java
+@Bean
+public RouteLocator routes(RouteLocatorBuilder builder) {
+	return builder.routes()
+        .route("cache_request_body_route", r -> r.path("/get").filters(f -> f.cacheRequestBody(String.class)).uri("http://httpbin.org"))
+        .build();
+}
+
+~~~
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: cache_request_body_route
+          uri: http://httpbin.org
+          predicates:
+            - Path=/get
+          filters:
+            - name: CacheRequestBody
+              args:
+                bodyClass: java.lang.String
+
+~~~
+
+
+
+
+
+### 6.32.Default
+
+将过滤器应用至所有的route。
+
+6.13有提到。
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      default-filters:
+      - AddResponseHeader=X-Response-Default-Red, Default-Blue
+      - PrefixPath=/httpbin
+      
+~~~
+
+
+
+## 7.全局过滤器
+
+
+
+### 7.1.自定义GlobalFilter
+
+~~~java
+package com.example.springcloudgatewaysimple.filter;
+
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+import org.springframework.cloud.gateway.filter.GatewayFilterChain;
+import org.springframework.cloud.gateway.filter.GlobalFilter;
+import org.springframework.core.Ordered;
+import org.springframework.web.server.ServerWebExchange;
+import reactor.core.publisher.Mono;
+
+public class CustomGlobalFilter implements GlobalFilter, Ordered {
+
+    private Log log = LogFactory.getLog(this.getClass());
+
+    @Override
+    public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+        log.info("custom global filter");
+        return chain.filter(exchange);
+    }
+
+    @Override
+    public int getOrder() {
+        return -1;
+    }
+}
+
+@Bean
+public GlobalFilter customFilter() {
+	return new CustomGlobalFilter();
+}
+
+~~~
+
+
+
+### 7.2.ForwardRoutingFilter
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: path_route
+          uri: forward:///demo
+          predicates:
+            - Path=/get
+
+~~~
+
+![image-20240816094556770](http://47.101.155.205/image-20240816094556770.png)
+
+
+
+### 7.3.ReactiveLoadBalancerClientFilter
+
+过滤器获取ServerWebExchange的属性ServerWebExchangeUtils.GATEWAY_REQUEST_URL_ATTR(协议的lb://service)或获取的属性ServerWebExchangeUtils.GATEWAY_SCHEME_PREFIX_ATTR为lb，则会使用ReactorLoadBalancer解析service的host和port，然后替换属性ServerWebExchangeUtils.GATEWAY_REQUEST_URL_ATTR的值，为修改的url会添加的这个ServerWebExchangeUtils.GATEWAY_ORIGINAL_REQUEST_URL_ATTR列表中。
+
+当gateway接收的请求协议是https时，如果这个过滤器获取协议为http，则会使用http协议发送到下游。相反也是如此。
+
+spring-coud-loadbalancer：https://docs.spring.io/spring-cloud-commons/docs/current/reference/html/#spring-cloud-loadbalancer
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: myRoute
+          uri: lb://service
+          predicates:
+            - Path=/get/**
+
+~~~
+
+当route配置成lb协议时，如果ReactorLoadBalancer对象没有在容器中找到，则会返回503的状态码。
+
+可以通过这个spring.cloud.gateway.loadbalancer.use404: true配置修改返回状态码为404。
+
+![image-20240816095824567](http://47.101.155.205/image-20240816095824567.png)
+
+
+
+### 7.4.NettyRoutingFilter
+
+URI requestUrl = (URI)exchange.getRequiredAttribute(ServerWebExchangeUtils.*GATEWAY_REQUEST_URL_ATTR*);获取的请求协议时http或https，则使用Netty HttpClient发送请求到下游。请求响应体放在exchange的属性ServerWebExchangeUtils.CLIENT_RESPONSE_ATTR中(可以在后续的过滤器中使用该属性)。
+
+WebClientHttpRoutingFilter不要求Netty
+
+
+
+### 7.5.NettyWriteResponseFilter
+
+如果Netty的请求响应在exchange的属性ServerWebExchangeUtils.CLIENT_RESPONSE_ATTR中，则执行该过滤器。该过滤器执行在其他过滤器完成之后，将代理请求响应结果返回至客户端。
+
+WebClientWriteResponseFilter不要求Netty。
+
+
+
+### 7.6.RouteToRequestUrlFilter
+
+如果exchange中属性ServerWebExchangeUtils.GATEWAY_ROUTE_ATTR存在值，RouteToRequestUrlFilter将会执行。
+
+基于请求的URI和Route的URI创建一个新的URI，新的URI会被添加到exchange的属性ServerWebExchangeUtils.GATEWAY_REQUEST_URL_ATTR中。
+
+如果是其他协议(URI.getSchemeSpecificPart())，例如：lb:ws://serviceid，则lb(协议)会被添加到exchange的属性ServerWebExchangeUtils.GATEWAY_SCHEME_PREFIX_ATTR中，以便其他后续过滤器使用。
+
+![image-20240816110532018](http://47.101.155.205/image-20240816110532018.png)
+
+
+
+
+
+### 7.7.WebsocketRoutingFilter
+
+如果exchange的属性ServerWebExchangeUtils.GATEWAY_REQUEST_URL_ATTR值为ws或wss协议，该过滤器启用。使用Spring WebSocket发送请求到下游。
+
+例如：lb:ws://serviceid配置在route中，则会触发该过滤器。
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+      # SockJS route
+      - id: websocket_sockjs_route
+        uri: http://localhost:3001
+        predicates:
+        - Path=/websocket/info/**
+      # Normal Websocket route
+      - id: websocket_route
+        uri: ws://localhost:3001
+        predicates:
+        - Path=/websocket/**
+
+~~~
+
+
+
+### 7.8.GatewayMetricsFilter
+
+GatewayMetricsFilter启用需要引入spring-boot-starter-actuator依赖。
+
+~~~pom
+<dependency>
+	<groupId>org.springframework.boot</groupId>
+	<artifactId>spring-boot-starter-actuator</artifactId>
+</dependency>
+
+~~~
+
+过滤器会添加名为spring.cloud.gateway.requests的计时器指标，有以下标签，
+
+1. routeId：route的id；
+2. routeUri：API路由到的uri；
+3. outcome：HttpStatus.Series，4XX或5XX等，表示一些了的状态码；
+4. status：返回给客户端的请求的HTTP状态码；
+5. httpStatusCode：返回给客户端的请求的HTTP状态码；
+6. httpMethod：请求使用的请求方法GET、POST等；
+7. path：请求的路径。
+
+spring.cloud.gateway.metrics.tags.path.enabled可以配置一些额外的监控标签。
+
+查询这些指标，需要暴露端点metrics，同时这个过滤器有执行过，否则也是404.
+
+![image-20240816142737446](http://47.101.155.205/image-20240816142737446.png)
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: myRoute
+          uri: http://httpbin.org/get
+          predicates:
+            - Path=/get/**
+      metrics:
+        enabled: true
+  application:
+    name: spring-cloud-gateway-simple
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "metrics"
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+~~~
+
+
+
+
+
+
+
+#### 7.8.1.安装prometheus
+
+~~~bash
+# 解压缩安装
+tar zvxf prometheus-2.53.0.linux-amd64.tar.gz
+
+cd prometheus-2.53.0.linux-amd64
+
+# 读取指定yml配置启动,以8090端口启动
+./prometheus --config.file=prometheus.yml --web.listen-address=:8090
+
+nohup ./prometheus --config.file=prometheus.yml  > ./logs/prometheus.log 2>&1 &
+
+~~~
+
+配置yaml文件，/actuator/metrics/spring.cloud.gateway.requests接口的数据prometheus不能解析。
+
+~~~yaml
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          # - alertmanager:9093
+
+rule_files:
+
+scrape_configs:
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+  - job_name: "spring-cloud-gateway-simple"
+    metrics_path: "/actuator/prometheus" # 默认/metrics
+    static_configs:
+      - targets: ["localhost:8080"]
+
+~~~
+
+![image-20240816153742812](http://47.101.155.205/image-20240816153742812.png)
+
+
+
+#### 7.8.2.安装grafana
+
+~~~bash
+# 解压缩安装安装
+wget https://dl.grafana.com/enterprise/release/grafana-enterprise-11.1.0.linux-amd64.tar.gz
+tar -zxvf grafana-enterprise-11.1.0.linux-amd64.tar.gz
+
+# 启动
+./bin/grafana-server
+
+# http://localhost:3000 访问登录,默认admin/admin
+
+~~~
+
+json模板地址：https://docs.spring.io/spring-cloud-gateway/docs/3.1.0/reference/html/gateway-grafana-dashboard.json
+
+~~~json
+{"__inputs":[{"name":"DS_PROMETHEUS","label":"prometheus","description":"","type":"datasource","pluginId":"prometheus","pluginName":"Prometheus"}],"__requires":[{"type":"grafana","id":"grafana","name":"Grafana","version":"5.0.0"},{"type":"panel","id":"graph","name":"Graph","version":"5.0.0"},{"type":"datasource","id":"prometheus","name":"Prometheus","version":"5.0.0"}],"annotations":{"list":[{"builtIn":1,"datasource":"-- Grafana --","enable":true,"hide":true,"iconColor":"rgba(0, 211, 255, 1)","name":"Annotations & Alerts","type":"dashboard"}]},"editable":true,"gnetId":null,"graphTooltip":0,"id":null,"iteration":1550777954006,"links":[],"panels":[{"collapsed":true,"gridPos":{"h":1,"w":24,"x":0,"y":0},"id":50,"panels":[{"cacheTimeout":null,"colorBackground":false,"colorValue":false,"colors":["rgba(245, 54, 54, 0.9)","rgba(191, 148, 112, 0.89)","rgba(50, 172, 45, 0.97)"],"datasource":"${DS_PROMETHEUS}","description":"","format":"none","gauge":{"maxValue":100,"minValue":0,"show":false,"thresholdLabels":false,"thresholdMarkers":true},"gridPos":{"h":3,"w":8,"x":0,"y":2},"hideTimeOverride":false,"id":28,"interval":null,"links":[],"mappingType":1,"mappingTypes":[{"name":"value to text","value":1},{"name":"range to text","value":2}],"maxDataPoints":100,"nullPointMode":"connected","nullText":null,"postfix":"","postfixFontSize":"50%","prefix":"","prefixFontSize":"50%","rangeMaps":[{"from":"null","text":"N/A","to":"null"}],"sparkline":{"fillColor":"rgba(31, 118, 189, 0.18)","full":false,"lineColor":"rgb(31, 120, 193)","show":false},"tableColumn":"Value","targets":[{"expr":"sum(spring_cloud_gateway_requests_seconds_count{job=~\"$gatewayService\"})","format":"time_series","interval":"","intervalFactor":2,"legendFormat":"","metric":"spring_cloud_gateway_requests_seconds_count","refId":"A","step":1200}],"thresholds":"","timeFrom":null,"timeShift":null,"title":"Total Requests Served","type":"singlestat","valueFontSize":"80%","valueMaps":[{"op":"=","text":"N/A","value":"null"}],"valueName":"current"},{"cacheTimeout":null,"colorBackground":false,"colorValue":false,"colors":["rgba(245, 54, 54, 0.9)","rgba(191, 148, 112, 0.89)","rgba(50, 172, 45, 0.97)"],"datasource":"${DS_PROMETHEUS}","description":"","format":"none","gauge":{"maxValue":100,"minValue":0,"show":false,"thresholdLabels":false,"thresholdMarkers":true},"gridPos":{"h":3,"w":8,"x":8,"y":2},"hideTimeOverride":false,"id":29,"interval":null,"links":[],"mappingType":1,"mappingTypes":[{"name":"value to text","value":1},{"name":"range to text","value":2}],"maxDataPoints":100,"nullPointMode":"connected","nullText":null,"postfix":"","postfixFontSize":"50%","prefix":"","prefixFontSize":"50%","rangeMaps":[{"from":"null","text":"N/A","to":"null"}],"sparkline":{"fillColor":"rgba(31, 118, 189, 0.18)","full":false,"lineColor":"rgb(31, 120, 193)","show":false},"tableColumn":"Value","targets":[{"expr":"sum(spring_cloud_gateway_requests_seconds_count{outcome=\"SUCCESSFUL\", job=~\"$gatewayService\"})","format":"time_series","interval":"","intervalFactor":2,"legendFormat":"","metric":"spring_cloud_gateway_requests_seconds_count","refId":"A","step":1200}],"thresholds":"","timeFrom":null,"timeShift":null,"title":"Total Successful Requests Served","type":"singlestat","valueFontSize":"80%","valueMaps":[{"op":"=","text":"N/A","value":"null"}],"valueName":"current"},{"cacheTimeout":null,"colorBackground":false,"colorValue":false,"colors":["rgba(245, 54, 54, 0.9)","rgba(191, 148, 112, 0.89)","rgba(50, 172, 45, 0.97)"],"datasource":"${DS_PROMETHEUS}","description":"","format":"none","gauge":{"maxValue":100,"minValue":0,"show":false,"thresholdLabels":false,"thresholdMarkers":true},"gridPos":{"h":3,"w":8,"x":16,"y":2},"hideTimeOverride":false,"id":30,"interval":null,"links":[],"mappingType":1,"mappingTypes":[{"name":"value to text","value":1},{"name":"range to text","value":2}],"maxDataPoints":100,"nullPointMode":"connected","nullText":null,"postfix":"","postfixFontSize":"50%","prefix":"","prefixFontSize":"50%","rangeMaps":[{"from":"null","text":"N/A","to":"null"}],"sparkline":{"fillColor":"rgba(31, 118, 189, 0.18)","full":false,"lineColor":"rgb(31, 120, 193)","show":false},"tableColumn":"Value","targets":[{"expr":"sum(spring_cloud_gateway_requests_seconds_count{outcome!=\"SUCCESSFUL\", job=~\"$gatewayService\"})","format":"time_series","interval":"","intervalFactor":2,"legendFormat":"","metric":"spring_cloud_gateway_requests_seconds_count","refId":"A","step":1200}],"thresholds":"","timeFrom":null,"timeShift":null,"title":"Total Unsuccessful Requests Served","type":"singlestat","valueFontSize":"80%","valueMaps":[{"op":"=","text":"N/A","value":"null"}],"valueName":"current"}],"repeat":null,"title":"Total Throughput","type":"row"},{"collapsed":true,"gridPos":{"h":1,"w":24,"x":0,"y":1},"id":51,"panels":[{"aliasColors":{},"bars":false,"dashLength":10,"dashes":false,"datasource":"${DS_PROMETHEUS}","fill":1,"gridPos":{"h":7,"w":6,"x":0,"y":3},"id":49,"legend":{"avg":false,"current":false,"max":false,"min":false,"show":false,"total":false,"values":false},"lines":true,"linewidth":1,"links":[],"nullPointMode":"null","percentage":false,"pointradius":5,"points":false,"renderer":"flot","repeat":"routeId","scopedVars":{"routeId":{"selected":false,"text":"ms-test","value":"ms-test"}},"seriesOverrides":[],"spaceLength":10,"stack":false,"steppedLine":false,"targets":[{"expr":"spring_cloud_gateway_requests_seconds_sum{routeId=~\"$routeId\", job=~\"$gatewayService\"}/spring_cloud_gateway_requests_seconds_count{routeId=~\"$routeId\", job=~\"$gatewayService\"}","format":"time_series","interval":"","intervalFactor":2,"legendFormat":"{{ status }}","metric":"gateway_api_time_seconds_sum","refId":"A","step":240}],"thresholds":[],"timeFrom":null,"timeShift":null,"title":"$routeId","tooltip":{"shared":false,"sort":0,"value_type":"individual"},"type":"graph","xaxis":{"buckets":null,"mode":"time","name":null,"show":true,"values":[]},"yaxes":[{"format":"s","label":null,"logBase":1,"max":null,"min":null,"show":true},{"format":"short","label":null,"logBase":1,"max":null,"min":null,"show":true}]},{"aliasColors":{},"bars":false,"dashLength":10,"dashes":false,"datasource":"${DS_PROMETHEUS}","fill":1,"gridPos":{"h":7,"w":6,"x":6,"y":3},"id":70,"legend":{"avg":false,"current":false,"max":false,"min":false,"show":false,"total":false,"values":false},"lines":true,"linewidth":1,"links":[],"nullPointMode":"null","percentage":false,"pointradius":5,"points":false,"renderer":"flot","repeat":null,"repeatIteration":1550777954005,"repeatPanelId":49,"scopedVars":{"routeId":{"selected":false,"text":"msnext","value":"msnext"}},"seriesOverrides":[],"spaceLength":10,"stack":false,"steppedLine":false,"targets":[{"expr":"spring_cloud_gateway_requests_seconds_sum{routeId=~\"$routeId\", job=~\"$gatewayService\"}/spring_cloud_gateway_requests_seconds_count{routeId=~\"$routeId\", job=~\"$gatewayService\"}","format":"time_series","interval":"","intervalFactor":2,"legendFormat":"{{ status }}","metric":"gateway_api_time_seconds_sum","refId":"A","step":240}],"thresholds":[],"timeFrom":null,"timeShift":null,"title":"$routeId","tooltip":{"shared":false,"sort":0,"value_type":"individual"},"type":"graph","xaxis":{"buckets":null,"mode":"time","name":null,"show":true,"values":[]},"yaxes":[{"format":"s","label":null,"logBase":1,"max":null,"min":null,"show":true},{"format":"short","label":null,"logBase":1,"max":null,"min":null,"show":true}]},{"aliasColors":{},"bars":false,"dashLength":10,"dashes":false,"datasource":"${DS_PROMETHEUS}","fill":1,"gridPos":{"h":7,"w":6,"x":12,"y":3},"id":71,"legend":{"avg":false,"current":false,"max":false,"min":false,"show":false,"total":false,"values":false},"lines":true,"linewidth":1,"links":[],"nullPointMode":"null","percentage":false,"pointradius":5,"points":false,"renderer":"flot","repeat":null,"repeatIteration":1550777954005,"repeatPanelId":49,"scopedVars":{"routeId":{"selected":false,"text":"msnext-a3s","value":"msnext-a3s"}},"seriesOverrides":[],"spaceLength":10,"stack":false,"steppedLine":false,"targets":[{"expr":"spring_cloud_gateway_requests_seconds_sum{routeId=~\"$routeId\", job=~\"$gatewayService\"}/spring_cloud_gateway_requests_seconds_count{routeId=~\"$routeId\", job=~\"$gatewayService\"}","format":"time_series","interval":"","intervalFactor":2,"legendFormat":"{{ status }}","metric":"gateway_api_time_seconds_sum","refId":"A","step":240}],"thresholds":[],"timeFrom":null,"timeShift":null,"title":"$routeId","tooltip":{"shared":false,"sort":0,"value_type":"individual"},"type":"graph","xaxis":{"buckets":null,"mode":"time","name":null,"show":true,"values":[]},"yaxes":[{"format":"s","label":null,"logBase":1,"max":null,"min":null,"show":true},{"format":"short","label":null,"logBase":1,"max":null,"min":null,"show":true}]},{"aliasColors":{},"bars":false,"dashLength":10,"dashes":false,"datasource":"${DS_PROMETHEUS}","fill":1,"gridPos":{"h":7,"w":6,"x":18,"y":3},"id":72,"legend":{"avg":false,"current":false,"max":false,"min":false,"show":false,"total":false,"values":false},"lines":true,"linewidth":1,"links":[],"nullPointMode":"null","percentage":false,"pointradius":5,"points":false,"renderer":"flot","repeat":null,"repeatIteration":1550777954005,"repeatPanelId":49,"scopedVars":{"routeId":{"selected":false,"text":"msnext-sample","value":"msnext-sample"}},"seriesOverrides":[],"spaceLength":10,"stack":false,"steppedLine":false,"targets":[{"expr":"spring_cloud_gateway_requests_seconds_sum{routeId=~\"$routeId\", job=~\"$gatewayService\"}/spring_cloud_gateway_requests_seconds_count{routeId=~\"$routeId\", job=~\"$gatewayService\"}","format":"time_series","interval":"","intervalFactor":2,"legendFormat":"{{ status }}","metric":"gateway_api_time_seconds_sum","refId":"A","step":240}],"thresholds":[],"timeFrom":null,"timeShift":null,"title":"$routeId","tooltip":{"shared":false,"sort":0,"value_type":"individual"},"type":"graph","xaxis":{"buckets":null,"mode":"time","name":null,"show":true,"values":[]},"yaxes":[{"format":"s","label":null,"logBase":1,"max":null,"min":null,"show":true},{"format":"short","label":null,"logBase":1,"max":null,"min":null,"show":true}]}],"repeat":null,"title":"Request Processing Time","type":"row"},{"collapsed":true,"gridPos":{"h":1,"w":24,"x":0,"y":2},"id":52,"panels":[{"aliasColors":{},"bars":false,"dashLength":10,"dashes":false,"datasource":"${DS_PROMETHEUS}","description":"","fill":1,"gridPos":{"h":7,"w":6,"x":0,"y":4},"id":2,"legend":{"avg":false,"current":false,"max":false,"min":false,"show":false,"total":false,"values":false},"lines":true,"linewidth":1,"links":[],"minSpan":null,"nullPointMode":"null","percentage":false,"pointradius":5,"points":false,"renderer":"flot","repeat":"routeId","scopedVars":{"routeId":{"selected":false,"text":"ms-test","value":"ms-test"}},"seriesOverrides":[],"spaceLength":10,"stack":true,"steppedLine":false,"targets":[{"expr":"spring_cloud_gateway_requests_seconds_count{outcome=\"SUCCESSFUL\", routeId=~\"$routeId\", job=~\"$gatewayService\"}","format":"time_series","hide":false,"interval":"","intervalFactor":2,"legendFormat":"{{ job }} / {{ routeUri }}","metric":"spring_cloud_gateway_requests_seconds_count","refId":"A","step":240}],"thresholds":[],"timeFrom":null,"timeShift":null,"title":"$routeId Success API Gateway Calls","tooltip":{"shared":false,"sort":0,"value_type":"cumulative"},"transparent":false,"type":"graph","xaxis":{"buckets":null,"mode":"time","name":null,"show":true,"values":[]},"yaxes":[{"format":"short","label":null,"logBase":1,"max":null,"min":null,"show":true},{"format":"short","label":null,"logBase":1,"max":null,"min":null,"show":true}]},{"aliasColors":{},"bars":false,"dashLength":10,"dashes":false,"datasource":"${DS_PROMETHEUS}","description":"","fill":1,"gridPos":{"h":7,"w":6,"x":6,"y":4},"id":73,"legend":{"avg":false,"current":false,"max":false,"min":false,"show":false,"total":false,"values":false},"lines":true,"linewidth":1,"links":[],"minSpan":null,"nullPointMode":"null","percentage":false,"pointradius":5,"points":false,"renderer":"flot","repeat":null,"repeatIteration":1550777954005,"repeatPanelId":2,"scopedVars":{"routeId":{"selected":false,"text":"msnext","value":"msnext"}},"seriesOverrides":[],"spaceLength":10,"stack":true,"steppedLine":false,"targets":[{"expr":"spring_cloud_gateway_requests_seconds_count{outcome=\"SUCCESSFUL\", routeId=~\"$routeId\", job=~\"$gatewayService\"}","format":"time_series","hide":false,"interval":"","intervalFactor":2,"legendFormat":"{{ job }} / {{ routeUri }}","metric":"spring_cloud_gateway_requests_seconds_count","refId":"A","step":240}],"thresholds":[],"timeFrom":null,"timeShift":null,"title":"$routeId Success API Gateway Calls","tooltip":{"shared":false,"sort":0,"value_type":"cumulative"},"transparent":false,"type":"graph","xaxis":{"buckets":null,"mode":"time","name":null,"show":true,"values":[]},"yaxes":[{"format":"short","label":null,"logBase":1,"max":null,"min":null,"show":true},{"format":"short","label":null,"logBase":1,"max":null,"min":null,"show":true}]},{"aliasColors":{},"bars":false,"dashLength":10,"dashes":false,"datasource":"${DS_PROMETHEUS}","description":"","fill":1,"gridPos":{"h":7,"w":6,"x":12,"y":4},"id":74,"legend":{"avg":false,"current":false,"max":false,"min":false,"show":false,"total":false,"values":false},"lines":true,"linewidth":1,"links":[],"minSpan":null,"nullPointMode":"null","percentage":false,"pointradius":5,"points":false,"renderer":"flot","repeat":null,"repeatIteration":1550777954005,"repeatPanelId":2,"scopedVars":{"routeId":{"selected":false,"text":"msnext-a3s","value":"msnext-a3s"}},"seriesOverrides":[],"spaceLength":10,"stack":true,"steppedLine":false,"targets":[{"expr":"spring_cloud_gateway_requests_seconds_count{outcome=\"SUCCESSFUL\", routeId=~\"$routeId\", job=~\"$gatewayService\"}","format":"time_series","hide":false,"interval":"","intervalFactor":2,"legendFormat":"{{ job }} / {{ routeUri }}","metric":"spring_cloud_gateway_requests_seconds_count","refId":"A","step":240}],"thresholds":[],"timeFrom":null,"timeShift":null,"title":"$routeId Success API Gateway Calls","tooltip":{"shared":false,"sort":0,"value_type":"cumulative"},"transparent":false,"type":"graph","xaxis":{"buckets":null,"mode":"time","name":null,"show":true,"values":[]},"yaxes":[{"format":"short","label":null,"logBase":1,"max":null,"min":null,"show":true},{"format":"short","label":null,"logBase":1,"max":null,"min":null,"show":true}]},{"aliasColors":{},"bars":false,"dashLength":10,"dashes":false,"datasource":"${DS_PROMETHEUS}","description":"","fill":1,"gridPos":{"h":7,"w":6,"x":18,"y":4},"id":75,"legend":{"avg":false,"current":false,"max":false,"min":false,"show":false,"total":false,"values":false},"lines":true,"linewidth":1,"links":[],"minSpan":null,"nullPointMode":"null","percentage":false,"pointradius":5,"points":false,"renderer":"flot","repeat":null,"repeatIteration":1550777954005,"repeatPanelId":2,"scopedVars":{"routeId":{"selected":false,"text":"msnext-sample","value":"msnext-sample"}},"seriesOverrides":[],"spaceLength":10,"stack":true,"steppedLine":false,"targets":[{"expr":"spring_cloud_gateway_requests_seconds_count{outcome=\"SUCCESSFUL\", routeId=~\"$routeId\", job=~\"$gatewayService\"}","format":"time_series","hide":false,"interval":"","intervalFactor":2,"legendFormat":"{{ job }} / {{ routeUri }}","metric":"spring_cloud_gateway_requests_seconds_count","refId":"A","step":240}],"thresholds":[],"timeFrom":null,"timeShift":null,"title":"$routeId Success API Gateway Calls","tooltip":{"shared":false,"sort":0,"value_type":"cumulative"},"transparent":false,"type":"graph","xaxis":{"buckets":null,"mode":"time","name":null,"show":true,"values":[]},"yaxes":[{"format":"short","label":null,"logBase":1,"max":null,"min":null,"show":true},{"format":"short","label":null,"logBase":1,"max":null,"min":null,"show":true}]}],"repeat":null,"title":"Successful API Calls","type":"row"},{"collapsed":true,"gridPos":{"h":1,"w":24,"x":0,"y":3},"id":53,"panels":[{"aliasColors":{},"bars":false,"dashLength":10,"dashes":false,"datasource":"${DS_PROMETHEUS}","description":"","fill":1,"gridPos":{"h":7,"w":8,"x":0,"y":14},"id":3,"legend":{"avg":false,"current":false,"max":false,"min":false,"show":false,"total":false,"values":false},"lines":true,"linewidth":1,"links":[],"nullPointMode":"null","percentage":false,"pointradius":5,"points":false,"renderer":"flot","repeat":"routeId","seriesOverrides":[],"spaceLength":10,"stack":true,"steppedLine":false,"targets":[{"expr":"spring_cloud_gateway_requests_seconds_count{outcome!=\"SUCCESSFUL\", routeId=~\"$routeId\", job=~\"$gatewayService\"}","format":"time_series","interval":"","intervalFactor":2,"legendFormat":"{{ job }} / {{ routeUri }}","metric":"spring_cloud_gateway_requests_seconds_count","refId":"A","step":240}],"thresholds":[],"timeFrom":null,"timeShift":null,"title":"$routeId Unsuccessful GW Calls","tooltip":{"shared":false,"sort":0,"value_type":"cumulative"},"type":"graph","xaxis":{"buckets":null,"mode":"time","name":null,"show":true,"values":[]},"yaxes":[{"format":"short","label":null,"logBase":1,"max":null,"min":null,"show":true},{"format":"short","label":null,"logBase":1,"max":null,"min":null,"show":true}]}],"repeat":null,"title":"Unsuccessful API Calls","type":"row"},{"collapsed":true,"gridPos":{"h":1,"w":24,"x":0,"y":4},"id":54,"panels":[{"aliasColors":{},"bars":false,"dashLength":10,"dashes":false,"datasource":"${DS_PROMETHEUS}","description":"","fill":1,"gridPos":{"h":7,"w":6,"x":0,"y":15},"id":35,"legend":{"avg":false,"current":false,"max":false,"min":false,"show":false,"total":false,"values":false},"lines":true,"linewidth":1,"links":[],"nullPointMode":"null","percentage":false,"pointradius":5,"points":false,"renderer":"flot","repeat":"routeId","scopedVars":{"routeId":{"selected":false,"text":"ms-test","value":"ms-test"}},"seriesOverrides":[],"spaceLength":10,"stack":false,"steppedLine":false,"targets":[{"expr":"sum(spring_cloud_gateway_requests_seconds_count{routeId=~\"$routeId\", job=~\"$gatewayService\"}) by (job, status)","format":"time_series","interval":"","intervalFactor":2,"legendFormat":"{{ job }} / {{ status }}","metric":"spring_cloud_gateway_requests_seconds_count","refId":"A","step":240}],"thresholds":[],"timeFrom":null,"timeShift":null,"title":"$routeId","tooltip":{"shared":false,"sort":0,"value_type":"individual"},"type":"graph","xaxis":{"buckets":null,"mode":"time","name":null,"show":true,"values":[]},"yaxes":[{"format":"short","label":null,"logBase":1,"max":null,"min":null,"show":true},{"format":"short","label":null,"logBase":1,"max":null,"min":null,"show":true}]},{"aliasColors":{},"bars":false,"dashLength":10,"dashes":false,"datasource":"${DS_PROMETHEUS}","description":"","fill":1,"gridPos":{"h":7,"w":6,"x":6,"y":15},"id":58,"legend":{"avg":false,"current":false,"max":false,"min":false,"show":false,"total":false,"values":false},"lines":true,"linewidth":1,"links":[],"nullPointMode":"null","percentage":false,"pointradius":5,"points":false,"renderer":"flot","repeat":null,"repeatIteration":1550775166360,"repeatPanelId":35,"scopedVars":{"routeId":{"selected":false,"text":"msnext","value":"msnext"}},"seriesOverrides":[],"spaceLength":10,"stack":false,"steppedLine":false,"targets":[{"expr":"sum(spring_cloud_gateway_requests_seconds_count{routeId=~\"$routeId\", job=~\"$gatewayService\"}) by (job, status)","format":"time_series","interval":"","intervalFactor":2,"legendFormat":"{{ job }} / {{ status }}","metric":"spring_cloud_gateway_requests_seconds_count","refId":"A","step":240}],"thresholds":[],"timeFrom":null,"timeShift":null,"title":"$routeId","tooltip":{"shared":false,"sort":0,"value_type":"individual"},"type":"graph","xaxis":{"buckets":null,"mode":"time","name":null,"show":true,"values":[]},"yaxes":[{"format":"short","label":null,"logBase":1,"max":null,"min":null,"show":true},{"format":"short","label":null,"logBase":1,"max":null,"min":null,"show":true}]},{"aliasColors":{},"bars":false,"dashLength":10,"dashes":false,"datasource":"${DS_PROMETHEUS}","description":"","fill":1,"gridPos":{"h":7,"w":6,"x":12,"y":15},"id":59,"legend":{"avg":false,"current":false,"max":false,"min":false,"show":false,"total":false,"values":false},"lines":true,"linewidth":1,"links":[],"nullPointMode":"null","percentage":false,"pointradius":5,"points":false,"renderer":"flot","repeat":null,"repeatIteration":1550775166360,"repeatPanelId":35,"scopedVars":{"routeId":{"selected":false,"text":"msnext-a3s","value":"msnext-a3s"}},"seriesOverrides":[],"spaceLength":10,"stack":false,"steppedLine":false,"targets":[{"expr":"sum(spring_cloud_gateway_requests_seconds_count{routeId=~\"$routeId\", job=~\"$gatewayService\"}) by (job, status)","format":"time_series","interval":"","intervalFactor":2,"legendFormat":"{{ job }} / {{ status }}","metric":"spring_cloud_gateway_requests_seconds_count","refId":"A","step":240}],"thresholds":[],"timeFrom":null,"timeShift":null,"title":"$routeId","tooltip":{"shared":false,"sort":0,"value_type":"individual"},"type":"graph","xaxis":{"buckets":null,"mode":"time","name":null,"show":true,"values":[]},"yaxes":[{"format":"short","label":null,"logBase":1,"max":null,"min":null,"show":true},{"format":"short","label":null,"logBase":1,"max":null,"min":null,"show":true}]},{"aliasColors":{},"bars":false,"dashLength":10,"dashes":false,"datasource":"${DS_PROMETHEUS}","description":"","fill":1,"gridPos":{"h":7,"w":6,"x":18,"y":15},"id":60,"legend":{"avg":false,"current":false,"max":false,"min":false,"show":false,"total":false,"values":false},"lines":true,"linewidth":1,"links":[],"nullPointMode":"null","percentage":false,"pointradius":5,"points":false,"renderer":"flot","repeat":null,"repeatIteration":1550775166360,"repeatPanelId":35,"scopedVars":{"routeId":{"selected":false,"text":"msnext-sample","value":"msnext-sample"}},"seriesOverrides":[],"spaceLength":10,"stack":false,"steppedLine":false,"targets":[{"expr":"sum(spring_cloud_gateway_requests_seconds_count{routeId=~\"$routeId\", job=~\"$gatewayService\"}) by (job, status)","format":"time_series","interval":"","intervalFactor":2,"legendFormat":"{{ job }} / {{ status }}","metric":"spring_cloud_gateway_requests_seconds_count","refId":"A","step":240}],"thresholds":[],"timeFrom":null,"timeShift":null,"title":"$routeId","tooltip":{"shared":false,"sort":0,"value_type":"individual"},"type":"graph","xaxis":{"buckets":null,"mode":"time","name":null,"show":true,"values":[]},"yaxes":[{"format":"short","label":null,"logBase":1,"max":null,"min":null,"show":true},{"format":"short","label":null,"logBase":1,"max":null,"min":null,"show":true}]}],"repeat":null,"title":"API / HTTP Status","type":"row"},{"collapsed":false,"gridPos":{"h":1,"w":24,"x":0,"y":5},"id":64,"panels":[],"title":"JVM","type":"row"},{"aliasColors":{},"bars":false,"dashLength":10,"dashes":false,"datasource":"${DS_PROMETHEUS}","fill":1,"gridPos":{"h":9,"w":6,"x":0,"y":6},"id":62,"legend":{"avg":false,"current":false,"max":false,"min":false,"show":false,"total":false,"values":false},"lines":true,"linewidth":1,"links":[],"nullPointMode":"null","percentage":false,"pointradius":5,"points":false,"renderer":"flot","seriesOverrides":[],"spaceLength":10,"stack":false,"steppedLine":false,"targets":[{"expr":"process_cpu_usage{job=~\"$gatewayService\"}","format":"time_series","hide":false,"interval":"","intervalFactor":1,"legendFormat":"{{ instance }}","refId":"A"}],"thresholds":[],"timeFrom":null,"timeShift":null,"title":"CPU Usage","tooltip":{"shared":false,"sort":0,"value_type":"individual"},"type":"graph","xaxis":{"buckets":null,"mode":"time","name":null,"show":true,"values":[]},"yaxes":[{"format":"short","label":null,"logBase":1,"max":null,"min":null,"show":true},{"format":"short","label":null,"logBase":1,"max":null,"min":null,"show":true}]},{"aliasColors":{},"bars":false,"dashLength":10,"dashes":false,"datasource":"${DS_PROMETHEUS}","fill":1,"gridPos":{"h":9,"w":6,"x":6,"y":6},"id":69,"legend":{"avg":false,"current":false,"max":false,"min":false,"show":false,"total":false,"values":false},"lines":true,"linewidth":1,"links":[],"nullPointMode":"null","percentage":false,"pointradius":5,"points":false,"renderer":"flot","seriesOverrides":[],"spaceLength":10,"stack":false,"steppedLine":false,"targets":[{"expr":"sum(jvm_memory_used_bytes{job=~\"$gatewayService\"}) by (job, instance)","format":"time_series","hide":false,"interval":"","intervalFactor":1,"legendFormat":"{{ instance }}","refId":"A"}],"thresholds":[],"timeFrom":null,"timeShift":null,"title":"Memory Used","tooltip":{"shared":false,"sort":0,"value_type":"individual"},"type":"graph","xaxis":{"buckets":null,"mode":"time","name":null,"show":true,"values":[]},"yaxes":[{"format":"short","label":null,"logBase":1,"max":null,"min":null,"show":true},{"format":"short","label":null,"logBase":1,"max":null,"min":null,"show":true}]},{"aliasColors":{},"bars":false,"dashLength":10,"dashes":false,"datasource":"${DS_PROMETHEUS}","fill":1,"gridPos":{"h":9,"w":6,"x":12,"y":6},"id":77,"legend":{"avg":false,"current":false,"max":false,"min":false,"show":false,"total":false,"values":false},"lines":true,"linewidth":1,"links":[],"nullPointMode":"null","percentage":false,"pointradius":5,"points":false,"renderer":"flot","seriesOverrides":[],"spaceLength":10,"stack":false,"steppedLine":false,"targets":[{"expr":"jvm_threads_live_threads{job=~\"$gatewayService\"}","format":"time_series","hide":false,"intervalFactor":1,"legendFormat":"{{ instance }}","refId":"A"}],"thresholds":[],"timeFrom":null,"timeShift":null,"title":"Live Threads","tooltip":{"shared":false,"sort":0,"value_type":"individual"},"type":"graph","xaxis":{"buckets":null,"mode":"time","name":null,"show":true,"values":[]},"yaxes":[{"format":"short","label":null,"logBase":1,"max":null,"min":null,"show":true},{"format":"short","label":null,"logBase":1,"max":null,"min":null,"show":true}]},{"alert":{"conditions":[{"evaluator":{"params":[0.3],"type":"gt"},"operator":{"type":"and"},"query":{"params":["A","5m","now"]},"reducer":{"params":[],"type":"avg"},"type":"query"}],"executionErrorState":"alerting","frequency":"60s","handler":1,"name":"Memory Saturation alert","noDataState":"no_data","notifications":[]},"aliasColors":{},"bars":false,"dashLength":10,"dashes":false,"datasource":"${DS_PROMETHEUS}","fill":1,"gridPos":{"h":9,"w":6,"x":18,"y":6},"id":79,"legend":{"avg":false,"current":false,"max":false,"min":false,"show":false,"total":false,"values":false},"lines":true,"linewidth":1,"links":[],"nullPointMode":"null","percentage":false,"pointradius":5,"points":false,"renderer":"flot","seriesOverrides":[],"spaceLength":10,"stack":false,"steppedLine":false,"targets":[{"expr":"jvm_gc_memory_promoted_bytes_total/jvm_gc_memory_allocated_bytes_total","format":"time_series","hide":false,"intervalFactor":1,"legendFormat":"{{ instance }}","refId":"A"}],"thresholds":[{"colorMode":"critical","fill":true,"line":true,"op":"gt","value":0.3}],"timeFrom":null,"timeShift":null,"title":"Memory Saturation","tooltip":{"shared":false,"sort":0,"value_type":"individual"},"type":"graph","xaxis":{"buckets":null,"mode":"time","name":null,"show":true,"values":[]},"yaxes":[{"format":"short","label":null,"logBase":1,"max":null,"min":null,"show":true},{"format":"short","label":null,"logBase":1,"max":null,"min":null,"show":true}]}],"refresh":"1m","schemaVersion":16,"style":"dark","tags":[],"templating":{"list":[{"allValue":null,"current":{},"datasource":"${DS_PROMETHEUS}","hide":0,"includeAll":true,"label":"Gateway Service","multi":true,"name":"gatewayService","options":[],"query":"label_values(spring_cloud_gateway_requests_seconds_count,job)","refresh":1,"regex":"","sort":1,"tagValuesQuery":"","tags":[],"tagsQuery":"","type":"query","useTags":false},{"allValue":null,"current":{},"datasource":"${DS_PROMETHEUS}","hide":0,"includeAll":true,"label":"Route Id","multi":true,"name":"routeId","options":[],"query":"label_values(spring_cloud_gateway_requests_seconds_count,routeId)","refresh":1,"regex":"","sort":1,"tagValuesQuery":"","tags":[],"tagsQuery":"","type":"query","useTags":false}]},"time":{"from":"now/d","to":"now"},"timepicker":{"refresh_intervals":["5s","10s","30s","1m","5m","15m","30m","1h","2h","1d"],"time_options":["5m","15m","1h","6h","12h","24h","2d","7d","30d"]},"timezone":"","title":"Spring Cloud Gateway","uid":"7voUGKrik","version":5}
+
+~~~
+
+
+
+![image-20240816154008774](http://47.101.155.205/image-20240816154008774.png)
+
+
+
+
+
+### 7.9.Marking An Exchange As Routed
+
+标记请求已被route，如果请求已经被route，则exchange中有属性gatewayAlreadyRouted的值为true。一但请求被标记为已路由，则其他的route过滤器不会再路由它。
+
+ServerWebExchangeUtils.isAlreadyRouted(exchange)，校验exchange是否被route。
+
+ServerWebExchangeUtils.setAlreadyRouted(exchange)，标记exchange已被route。
+
+
+
+## 8.HttpHeadersFilters
+
+HttpHeadersFilters过滤器在gateway转发请求前执行，例如：NettyRoutingFilter。
+
+
+
+### 8.1.ForwardedHeadersFilter
+
+请求头不存在Forwarded的key，则创建这样一个头，里面的值有请求头的Host，请求的协议，客户端的ip和端口。如下图格式。
+
+![image-20240816164311608](C:\Users\lenovo\AppData\Roaming\Typora\typora-user-images\image-20240816164311608.png)
+
+
+
+### 8.2.RemoveHopByHopHeadersFilter
+
+从接收的请求头移除一些key，同时接收的响应头中也会移除这些请求头的key，spring.cloud.gateway.filter.remove-hop-by-hop.headers可以配置移除的key。
+
+![image-20240816170721760](C:\Users\lenovo\AppData\Roaming\Typora\typora-user-images\image-20240816170721760.png)
+
+![image-20240816171749041](C:\Users\lenovo\AppData\Roaming\Typora\typora-user-images\image-20240816171749041.png)
+
+![image-20240816171813317](C:\Users\lenovo\AppData\Roaming\Typora\typora-user-images\image-20240816171813317.png)
