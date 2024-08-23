@@ -35,3 +35,4 @@ build/
 spring-cloud-gateway-simple.iml
 
 *.log
+*.p12
