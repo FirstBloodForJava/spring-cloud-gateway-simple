@@ -33,3 +33,5 @@ build/
 
 /.idea/
 spring-cloud-gateway-simple.iml
+
+*.log
