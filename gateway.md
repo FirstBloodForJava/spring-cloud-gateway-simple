@@ -2241,9 +2241,22 @@ HttpHeadersFilters过滤器在gateway转发请求前执行，例如：NettyRouti
 
 ### 8.1.ForwardedHeadersFilter
 
+http://[0:0:0:0:0:0:0:1]:8080/info发起ipv6的请求
+
 请求头不存在Forwarded的key，则创建这样一个头，里面的值有请求头的Host，请求的协议，客户端的ip和端口。如下图格式。
 
-![image-20240816164311608](C:\Users\lenovo\AppData\Roaming\Typora\typora-user-images\image-20240816164311608.png)
+~~~java
+exchange.getRequest().getURI().getScheme();// 获取请求的协议
+HttpHeaders.getFirst("host");// 获取请求头host的第一个value
+// 获取客户端
+request.getRemoteAddress().getAddress().getHostAddress();// ipv4则是客户端的ipv4地址
+request.getRemoteAddress().getPort();//远程客户端的端口号
+
+~~~
+
+
+
+![image-20240816164311608](http://47.101.155.205/image-20240816164311608.png)
 
 
 
@@ -2251,8 +2264,734 @@ HttpHeadersFilters过滤器在gateway转发请求前执行，例如：NettyRouti
 
 从接收的请求头移除一些key，同时接收的响应头中也会移除这些请求头的key，spring.cloud.gateway.filter.remove-hop-by-hop.headers可以配置移除的key。
 
-![image-20240816170721760](C:\Users\lenovo\AppData\Roaming\Typora\typora-user-images\image-20240816170721760.png)
+![image-20240816170721760](http://47.101.155.205/image-20240816170721760.png)
 
-![image-20240816171749041](C:\Users\lenovo\AppData\Roaming\Typora\typora-user-images\image-20240816171749041.png)
+![image-20240816171749041](http://47.101.155.205/image-20240816171749041.png)
 
-![image-20240816171813317](C:\Users\lenovo\AppData\Roaming\Typora\typora-user-images\image-20240816171813317.png)
+![image-20240816171813317](http://47.101.155.205/image-20240816171813317.png)
+
+
+
+### 8.3.XForwardedHeadersFilter
+
+过滤器已经执行，共添加了4个请求头，实际只有一个请求头(是因为这里测试地址没有返回这个地址)。
+
+1. X-Forwarded-For：远程客户端的ip地址(可以是IPv4或IPv6)；
+2. X-Forwarded-Host：到gateway请求域名(ip)+端口(http和https默认端口不显示)
+3. X-Forwarded-Port：到gateway请求的端口号；
+4. X-Forwarded-Proto：到gateway获取请求的协议；
+
+~~~java
+// 通过到web的Controller
+Enumeration<String> headerNames = request.getHeaderNames();
+while (headerNames.hasMoreElements()) {
+	String key = headerNames.nextElement();
+	System.out.println(key + ": " + request.getHeader(key));
+}
+
+~~~
+
+
+
+~~~java
+content-length: 303
+Accept: */*
+User-Agent: PostmanRuntime/7.41.1
+Forwarded: proto=http;host="192.168.8.8:8080";for="192.168.8.8:59116"
+X-Forwarded-Proto: http
+X-Forwarded-Host: 192.168.8.8:8080
+host: 192.168.8.8:9041
+X-Forwarded-For: 192.168.8.8
+Postman-Token: aaf82bc0-e59b-478d-988d-c00d88585d0b
+Accept-Encoding: gzip, deflate, br
+X-Forwarded-Port: 8080
+Content-Type: application/json
+
+// 请求地址为IPv6
+content-length: 303
+Accept: */*
+User-Agent: PostmanRuntime/7.41.1
+Forwarded: proto=http;host="[fe80::410c:f0df:b0e:cb5b%6]:8080";for="[fe80:0:0:0:410c:f0df:b0e:cb5b%6]:59626"
+X-Forwarded-Proto: http
+X-Forwarded-Host: [fe80::410c:f0df:b0e:cb5b%6]:8080
+host: 192.168.8.8:9041
+X-Forwarded-For: fe80:0:0:0:410c:f0df:b0e:cb5b%6
+Postman-Token: f71e291e-8528-42d6-9d70-51e4ba5cd6ac
+Accept-Encoding: gzip, deflate, br
+X-Forwarded-Port: 8080
+Content-Type: application/json
+    
+~~~
+
+
+
+![image-20240819130310522](http://47.101.155.205/image-20240819130310522.png)
+
+![image-20240819125301054](http://47.101.155.205/image-20240819125301054.png)
+
+![image-20240819125210435](http://47.101.155.205/image-20240819125210435.png)
+
+
+
+## 9.TLS和SSL
+
+支持处理https请求协议。
+
+~~~bash
+# 生成keysotre文件
+# -alias gateway 对应springboot配置server.ssl.key-alias
+# -storetype PKCS12 对应springboot配置server.ssl.key-sore-type
+# -keystore keystore.p12(文件名) 对应springboot配置server.ssl.key-sore(文件路径)
+keytool -genkeypair -alias gateway -keyalg RSA -keysize 2048 -storetype PKCS12 -keystore keystore.p12 -validity 3650
+# 密码窗口输入 对应springboot配置server.ssl.key-sore-password
+
+~~~
+
+
+
+~~~yaml
+server:
+  ssl:
+    enabled: true
+    key-alias: gateway
+    key-store-password: oycm12
+    key-store: keystore.p12
+    key-store-type: PKCS12
+
+~~~
+
+
+
+支持路由到http/https下游，路由到https，以下配置表示信任下游所有证书。
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      httpclient:
+        ssl:
+          useInsecureTrustManager: true
+
+~~~
+
+
+
+### 9.1.TLS连接
+
+配置HTTPS连接时间
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      httpclient:
+        ssl:
+          handshake-timeout-millis: 10000
+          close-notify-flush-timeout-millis: 3000
+          close-notify-read-timeout-millis: 0
+
+~~~
+
+
+
+## 10.配置
+
+Spring Cloud Gateway的配置有RouteDefinition对象集合驱动。
+
+默认情况，PropertiesRouteDefinitionLocator加载配置通过SpringBoot的@ConfigurationProperties注解机制。
+
+一般情况下，使用配置文件路由请求是足够的，也可以使用外部数据源加载路由，例如数据库，后续将支持Redis、MongoDB和Cassandra作为数据源，基于RouteDefinitionLocator实现。RedisRouteDefinitionRepository
+
+
+
+### 10.1.路由指标
+
+添加spring-boot-starter-actuator依赖之后，监控指标默认启动。
+
+默认spring.cloud.gateway.metrics.enabled=true。
+
+/actuator/metrics/spring.cloud.gateway.routes.count查询
+
+![image-20240821171320036](http://47.101.155.205/image-20240821171320036.png)
+
+
+
+## 11.路由元数据配置
+
+每个路由配置额外参数。
+
+```yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: route_with_metadata
+          uri: http://httpbin.org/get
+          metadata:
+            optionName: "OptionValue"
+            compositeObject:
+              name: "value"
+            iAmNumber: 1
+          predicates: 
+            - Path=/get/**
+
+```
+
+~~~java
+Route route = exchange.getAttribute(ServerWebExchangeUtils.GATEWAY_ROUTE_ATTR);
+// 获取所有的原数据key=value
+log.info(route.getMetadata());
+// 获取指定名称的原数据key的value
+log.info(route.getMetadata().get("optionName"));
+
+~~~
+
+![image-20240821172140235](http://47.101.155.205/image-20240821172140235.png)
+
+
+
+
+
+## 12.Http超时配置
+
+可以为所有的路由或特定的路由配置http超时时间(连接和响应)。
+
+### 12.1.全局配置
+
+connect-timeout配置时间单位为毫秒；
+
+response-timeout配置时间遵循java.time.Duration格式，携带单位；
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      httpclient:
+        connect-timeout: 1000
+        response-timeout: 5s
+
+~~~
+
+
+
+
+
+### 12.2.每个路由配置
+
+response-timeout、connect-timeout时间配置为毫秒单位，配置为负值表示禁用全局的配置。
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: route_with_metadata
+          uri: http://httpbin.org/
+          metadata:
+            optionName: "OptionValue"
+            compositeObject:
+              name: "value"
+            iAmNumber: 1
+            response-timeout: 1000
+            connect-timeout: 2000
+          predicates:
+            - Path=/delay/**
+
+~~~
+
+
+
+代码配置格式
+
+~~~java
+import static org.springframework.cloud.gateway.support.RouteMetadataUtils.CONNECT_TIMEOUT_ATTR;
+import static org.springframework.cloud.gateway.support.RouteMetadataUtils.RESPONSE_TIMEOUT_ATTR;
+
+      @Bean
+      public RouteLocator customRouteLocator(RouteLocatorBuilder routeBuilder){
+         return routeBuilder.routes()
+               .route("test1", r -> {
+                  return r.host("*.somehost.org").and().path("/somepath")
+                        .filters(f -> f.addRequestHeader("header1", "header-value-1"))
+                        .uri("http://someuri")
+                        .metadata(RESPONSE_TIMEOUT_ATTR, 200)
+                        .metadata(CONNECT_TIMEOUT_ATTR, 200);
+               })
+               .build();
+      }
+
+~~~
+
+
+
+
+
+### 12.3.流式编程
+
+支持and、or、negate操作。
+
+~~~java
+@Bean
+public RouteLocator customRouteLocator(RouteLocatorBuilder builder, ThrottleGatewayFilterFactory throttle) {
+    return builder.routes()
+            .route(r -> r.host("**.abc.org").and().path("/image/png")
+                .filters(f ->
+                        f.addResponseHeader("X-TestHeader", "foobar"))
+                .uri("http://httpbin.org:80")
+            )
+            .route(r -> r.path("/image/webp")
+                .filters(f ->
+                        f.addResponseHeader("X-AnotherHeader", "baz"))
+                .uri("http://httpbin.org:80")
+                .metadata("key", "value")
+            )
+            .route(r -> r.order(-1)
+                .host("**.throttle.org").and().path("/get")
+                .filters(f -> f.filter(throttle.apply(1,
+                        1,
+                        10,
+                        TimeUnit.SECONDS)))
+                .uri("http://httpbin.org:80")
+                .metadata("key", "value")
+            )
+            .build();
+}
+
+~~~
+
+
+
+### 12.4.结合DiscoveryClient转发请求
+
+spring.cloud.gateway.discovery.locator.enabled=true
+
+classpath中引入DiscoveryClient的实现依赖，例如Netflix Eureka、Consul、Zookeeper。
+
+gateway会根据发现的客户端自动定义predicate和过滤器来route请求。默认使用/serviceId/**断言请求，serviceId来自DiscoveryClient的服务id。
+
+过滤器默认是RewritePath过滤器，/serviceId/?(?<remaining>.*)，替换成/${remaining}，serviceId会在发送到下游请求之前从服务端剥离。
+
+#### 12.4.1.eureka
+
+~~~pom
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+</dependency>
+
+~~~
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: route_with_metadata
+          uri: http://httpbin.org/
+          metadata:
+            optionName: "OptionValue"
+            compositeObject:
+              name: "value"
+            iAmNumber: 1
+            response-timeout: -1
+            connect-timeout: 3000
+          predicates:
+            - Path=/delay/**
+      discovery:
+        locator:
+          enabled: true # 开启基于发现客户端的route注册功能
+          lower-case-service-id: true # 将服务id全部小写
+eureka:
+  client:
+    service-url:
+      defaultZone: http://192.168.125.224:8761/eureka/,http://192.168.125.225:8761/eureka/,http://192.168.125.226:8761/eureka/
+logging:
+  level:
+    root: info
+
+~~~
+
+![image-20240822101533020](http://47.101.155.205/image-20240822101533020.png)
+
+在原有的Path断言和RewritePath过滤器中再添加过滤器。要按格式才能注册成功。
+
+下面predicate断言新增Host要求，增加断路器的过滤器(转发到本地接口)。
+
+~~~yaml
+spring.cloud.gateway.discovery.locator.predicates[0].name: Path
+spring.cloud.gateway.discovery.locator.predicates[0].args[pattern]: "'/'+serviceId+'/**'"
+spring.cloud.gateway.discovery.locator.predicates[1].name: Host
+spring.cloud.gateway.discovery.locator.predicates[1].args[pattern]: "'**.foo.com'"
+spring.cloud.gateway.discovery.locator.filters[0].name: CircuitBreaker
+spring.cloud.gateway.discovery.locator.filters[0].args[name]: serviceId
+spring.cloud.gateway.discovery.locator.filters[0].args[fallbackUri]: "'forward:/demo/'+serviceId"
+spring.cloud.gateway.discovery.locator.filters[1].name: RewritePath
+spring.cloud.gateway.discovery.locator.filters[1].args[regexp]: "'/' + serviceId + '/?(?<remaining>.*)'"
+spring.cloud.gateway.discovery.locator.filters[1].args[replacement]: "'/${remaining}'"
+~~~
+
+![image-20240822112901286](http://47.101.155.205/image-20240822112901286.png)
+
+![image-20240822112926427](http://47.101.155.205/image-20240822112926427.png)
+
+
+
+## 13.netty请求日志
+
+配置系统参数-Dreactor.netty.http.server.accessLogEnabled=true(java启动参数)
+
+
+
+### 13.1.log.xml日志结果说明
+
+logger-日志记录器名称是log创建指定的类名？
+
+rollingPolicy-是否只能出现在相关的appender的标签块中？
+
+log.xml配置标签块：
+
+1. property：定义属性，文件中全局使用；
+2. appender：日志输出目标：ConsoleAppender、FileAppender、RollingFileAppender、AsyncAppender等，每个Appender需要通过appender标签定义，并在root或logger中通过appender-ref引用；
+3. rollingPolicy ：控制日志文件的滚动策略，如按时间、按文件大小；
+   1. ch.qos.logback.core.rolling.TimeBasedRollingPolicy；
+   2. ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy；
+4. pattern：定义日志的输出格式；
+   1. %d{日期格式}：打印时间；
+   2. %thread：线程名称；
+   3. %level：日志级别，%-5level不够5个字符，后面空格结束；
+   4. %msg：日志消息；
+   5. %n：换行符；
+   6. %logger{length}：日志记录器名称，length限制长度；
+   7. %class：日志记录器名称(全路径名称)；
+   8. %file：触发日志的源文件名；
+   9. %M：触发日志的代码方法名；
+   10. %L：触发日志的源文件行号；
+   11. %line：触发日志的源文件行号；
+   12. %X{traceId}：
+   13. %X{spanId}：
+5. logger：指定特定包或类的日志级别和输出目标；
+   1. name：控制包或类；
+   2. level：控制日志级别；
+   3. additivity：默认true，会将该logger的记录传递到父级Logger，false则不会；，例如其中一个logger1(假如配置包为com.org.controller)指向一个输出至指定文件，如果不继承，则如果有另一个logger(com.org)则这个日志只会输出至logger1的位置，继承则会logger1使用其配置输出，在logger以其配置输出；
+   4. appender-ref：指向输出目标，appender的name；
+6. 日志级别：TRACE、DEBUD、INFO、WARN、ERROR由低到高，设置日志级别意味着低于此级别的日志不会输出，例如设置为WARN，INFO级别的日志不会输出；
+
+
+
+### 13.2.AsyncAppender用法
+
+日志在控制台打印，且异步输出至file。
+
+~~~xml
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration status="INFO">
+
+    <!-- 配置输出日志到控制台 -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%date{yyyy-MM-dd HH:mm:ss} [%-5level] [%thread] [%logger{36}.%M.%L]: %msg%n</pattern>
+        </encoder>
+    </appender>
+
+
+    <!-- 配置输出日志到File,使用时间滚动策略 -->
+    <appender name="FILE_TIME" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <!-- 日志文件的名称模式 -->
+            <fileNamePattern>logs/logFile.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <!-- 启动是否清理过期日志,过期日志根据maxHistory最大文件数 -->
+            <cleanHistoryOnStart>true</cleanHistoryOnStart>
+            <!-- 30个最大文件 -->
+            <maxHistory>30</maxHistory>
+        </rollingPolicy>
+        <encoder>
+            <!-- 日志输出格式 -->
+            <pattern>%d{HH:mm:ss.SSS}[%X{traceId},%X{spanId}] [%-5level] [%thread] %logger{36} - %msg%n</pattern>
+            <charset>UTF-8</charset> <!-- 此处设置字符集 -->
+        </encoder>
+    </appender>
+
+    <!-- 配置输出日志到File,使用大小和时间策略 -->
+    <appender name="FILE_SIZE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <!-- 当前日志文件的名称 -->
+        <!--<file>logs/logFile.log</file>-->
+
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <!-- 日志文件的名称模式 -->
+            <fileNamePattern>logs/logFile.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <!-- 单个日志文件的最大大小 -->
+            <maxFileSize>10MB</maxFileSize>
+            <!-- 保留的最大历史文件数 -->
+            <maxHistory>30</maxHistory>
+            <!-- 最大日志存储总量 -->
+            <totalSizeCap>3GB</totalSizeCap>
+        </rollingPolicy>
+
+        <encoder>
+            <!-- 日志输出格式 -->
+            <pattern>%d{HH:mm:ss.SSS}[%X{traceId},%X{spanId}] [%-5level] [%thread] %logger{36} - %msg%n</pattern>
+            <charset>UTF-8</charset> <!-- 此处设置字符集 -->
+        </encoder>
+    </appender>
+
+    <!-- 配置AsyncAppender,异步输出日志到FILE配置 -->
+    <appender name="ASYNC" class="ch.qos.logback.classic.AsyncAppender">
+        <appender-ref ref="FILE_TIME" />
+        <!-- 存储日志事件的队列的大小,默认256 -->
+        <queueSize>512</queueSize>
+        <!-- 0表示满时清理低优先级队列日志(在队列中怎么判断日志的优先级?),其他正值表示表示超过多少%开始清理,默认值时queueSize/5 -->
+        <discardingThreshold>0</discardingThreshold>
+        <!--默认false,队列满会阻塞调用线程,true则不会-->
+        <neverBlock>true</neverBlock>
+    </appender>
+
+    <root level="INFO">
+        <!--控制台-->
+        <appender-ref ref="CONSOLE"/>
+        <!--异步实际滚动日志输出-->
+        <appender-ref ref="ASYNC"/>
+        <!--时间+文件大小滚动-->
+        <!--<appender-ref ref="FILE_SIZE"/>-->
+    </root>
+
+</configuration>
+
+~~~
+
+
+
+## 14.CORS跨域配置
+
+### 14.1.全局CORS配置
+
+以下配置允许跨域源头来自docs.spring.io的所有get请求。
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowedOrigins: "https://docs.spring.io"
+            allowedMethods:
+            - GET
+
+~~~
+
+配置spring.cloud.gateway.globalcors.add-to-simple-url-handler-mapping为true(默认false)，false：只有gateway路由处理的请求才允许跨域；true：gate所有的请求配置都应用跨域规则。
+
+
+
+### 14.2.局部CORS配置
+
+基于路由的跨域配置
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: custom_route
+          uri: http://example.org
+          predicates:
+            - Path=/api/**
+          filters:
+            - name: "CorsResponseHeader"
+              args:
+                allowedOrigins: "http://example.com"
+                allowedMethods: "GET,POST"
+                allowedHeaders: "*"
+                allowCredentials: true
+
+
+~~~
+
+
+
+
+
+### 14.3.Spring WebFlux
+
+通过注入CorsWebFilter过滤器实现解决跨域，gateway所有的请求都会配置。
+
+~~~java
+package com.example.springcloudgatewaysimple.config;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.reactive.CorsWebFilter;
+import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource;
+
+/**
+ * @author ouyangcm
+ * create 2024/8/23 11:28
+ */
+@Configuration
+public class CorsConfig {
+
+    @Bean
+    public CorsWebFilter corsWebFilter() {
+        CorsConfiguration config = new CorsConfiguration();
+        config.addAllowedOrigin("http://example.com");
+        config.addAllowedMethod("GET");
+        config.addAllowedMethod("POST");
+        config.addAllowedHeader("*");
+        config.setAllowCredentials(true);
+
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", config);
+
+        return new CorsWebFilter(source);
+    }
+}
+
+~~~
+
+
+
+### 14.4.手动自定义过滤器处理
+
+{FilterName}GatewayFilterFactory继承了AbstractGatewayFilterFactory，往容器中注入了该过滤器，过滤器要生效，需要在路由中应用过滤器。
+
+~~~java
+package com.example.springcloudgatewaysimple.filter;
+
+import org.springframework.cloud.gateway.filter.GatewayFilter;
+import org.springframework.cloud.gateway.filter.factory.AbstractGatewayFilterFactory;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.server.reactive.ServerHttpRequest;
+import org.springframework.http.server.reactive.ServerHttpResponse;
+import org.springframework.stereotype.Component;
+import reactor.core.publisher.Mono;
+
+/**
+ * @author ouyangcm
+ * create 2024/8/23 13:12
+ */
+@Component
+public class CustomCorsFilterGatewayFilterFactory extends AbstractGatewayFilterFactory<CustomCorsFilterGatewayFilterFactory.Config> {
+
+    public CustomCorsFilterGatewayFilterFactory() {
+        super(Config.class);
+    }
+
+    @Override
+    public GatewayFilter apply(Config config) {
+        return (exchange, chain) -> {
+            ServerHttpRequest request = exchange.getRequest();
+            ServerHttpResponse response = exchange.getResponse();
+
+            // 处理预检请求
+            if (HttpMethod.OPTIONS.equals(request.getMethod())) {
+                response.getHeaders().add(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, request.getHeaders().getOrigin());
+                response.getHeaders().add(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, config.getAllowedMethods());
+                response.getHeaders().add(HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS, config.getAllowedHeaders());
+                // 浏览器是(true)否允许跨域请求携带凭证信息
+                response.getHeaders().add(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, config.getAllowCredentials());
+                response.setStatusCode(HttpStatus.OK);
+                return Mono.empty();
+            }
+
+            // 处理非预检请求
+            response.getHeaders().add(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, request.getHeaders().getOrigin());
+            response.getHeaders().add(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, config.getAllowedMethods());
+            response.getHeaders().add(HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS, config.getAllowedHeaders());
+            response.getHeaders().add(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, config.getAllowCredentials());
+
+            return chain.filter(exchange);
+        };
+    }
+
+    public static class Config {
+        private String allowedOrigin = "*";
+        private String allowedMethods = "GET, POST, PUT, DELETE, OPTIONS";
+        private String allowedHeaders = "*";
+        private String allowCredentials = "true";
+
+        // Getters and Setters for these fields
+
+        public String getAllowedOrigin() {
+            return allowedOrigin;
+        }
+
+        public void setAllowedOrigin(String allowedOrigin) {
+            this.allowedOrigin = allowedOrigin;
+        }
+
+        public String getAllowedMethods() {
+            return allowedMethods;
+        }
+
+        public void setAllowedMethods(String allowedMethods) {
+            this.allowedMethods = allowedMethods;
+        }
+
+        public String getAllowedHeaders() {
+            return allowedHeaders;
+        }
+
+        public void setAllowedHeaders(String allowedHeaders) {
+            this.allowedHeaders = allowedHeaders;
+        }
+
+        public String getAllowCredentials() {
+            return allowCredentials;
+        }
+
+        public void setAllowCredentials(String allowCredentials) {
+            this.allowCredentials = allowCredentials;
+        }
+    }
+}
+
+~~~
+
+
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: route_with_metadata
+          uri: http://httpbin.org/
+          metadata:
+            optionName: "OptionValue"
+            compositeObject:
+              name: "value"
+            iAmNumber: 1
+            response-timeout: -1
+            connect-timeout: 3000
+          predicates:
+            - Path=/delay/**
+      discovery:
+        locator:
+          enabled: true
+          lower-case-service-id: true
+      default-filters:
+        - name: CustomCorsFilter # 配置过滤器生效,不可缺少
+eureka:
+  client:
+    service-url:
+      defaultZone: http://192.168.125.224:8761/eureka/,http://192.168.125.225:8761/eureka/
+logging:
+  level:
+    root: info
+spring.cloud.gateway.discovery.locator.predicates[0].name: Path
+spring.cloud.gateway.discovery.locator.predicates[0].args[pattern]: "'/'+serviceId+'/**'"
+spring.cloud.gateway.discovery.locator.predicates[1].name: Host
+spring.cloud.gateway.discovery.locator.predicates[1].args[pattern]: "'**.foo.com'"
+spring.cloud.gateway.discovery.locator.filters[0].name: CircuitBreaker
+spring.cloud.gateway.discovery.locator.filters[0].args[name]: serviceId
+spring.cloud.gateway.discovery.locator.filters[0].args[fallbackUri]: "'forward:/demo/'+serviceId"
+spring.cloud.gateway.discovery.locator.filters[1].name: RewritePath
+spring.cloud.gateway.discovery.locator.filters[1].args[regexp]: "'/' + serviceId + '/?(?<remaining>.*)'"
+spring.cloud.gateway.discovery.locator.filters[1].args[replacement]: "'/${remaining}'"
+
+
+~~~
+
