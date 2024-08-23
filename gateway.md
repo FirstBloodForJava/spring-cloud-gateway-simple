@@ -1950,7 +1950,9 @@ spring:
 
 
 
-### 7.1.自定义GlobalFilter
+### 7.1.自定义全局过滤器GlobalFilter
+
+当请求与路由匹配时，过滤web处理器会将所有的全局过滤器实例和特定作用于路由的过滤器添加到过滤链中。
 
 ~~~java
 package com.example.springcloudgatewaysimple.filter;
@@ -2995,3 +2997,179 @@ spring.cloud.gateway.discovery.locator.filters[1].args[replacement]: "'/${remain
 
 ~~~
 
+
+
+## 15.Actuator API
+
+
+
+~~~properties
+management.endpoint.gateway.enabled=true # default value
+management.endpoints.web.exposure.include=gateway
+
+~~~
+
+~~~yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: myRoute
+          uri: http://httpbin.org/get
+          predicates:
+            - Path=/get/**
+      metrics:
+        enabled: true
+  application:
+    name: spring-cloud-gateway-simple
+management:
+  endpoints:
+    web:
+      exposure:
+        include: ["metrics", "gateway", "actuator"]
+  endpoint:
+    gateway:
+      enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+
+~~~
+
+
+
+### 15.1.route查询
+
+/actuator/gateway/routes
+
+org.springframework.cloud.gateway.actuate.GatewayLegacyControllerEndpoint
+
+org.springframework.cloud.gateway.actuate.GatewayControllerEndpoint
+
+类中可以查询哪些接口可以调用。
+
+![image-20240823163048254](http://47.101.155.205/image-20240823163048254.png)
+
+
+
+~~~properties
+spring.cloud.gateway.actuator.verbose.enabled=false
+
+~~~
+
+![image-20240823163726862](http://47.101.155.205/image-20240823163726862.png)
+
+![image-20240823163632878](http://47.101.155.205/image-20240823163632878.png)
+
+
+
+### 15.2.检索过滤器
+
+#### 15.2.1.全局过滤器
+
+/actuator/gateway/globalfilters显示作用于所有routes的
+
+过滤器的toStirng方法，getOrder返回值。
+
+![image-20240823164804225](http://47.101.155.205/image-20240823164804225.png)
+
+
+
+
+
+#### 15.2.2.路由过滤器
+
+/actuator/gateway/routefilters显示所有GatewayFilter工厂对象，这些过滤器可以作用于特定的路由。
+
+![image-20240823165827192](http://47.101.155.205/image-20240823165827192.png)
+
+
+
+#### 15.3.刷新路由缓存
+
+Post：/actuator/gateway/refresh，没有响应体。
+
+
+
+#### 15.4.查询定义的所有路由信息
+
+
+
+![image-20240823170603505](http://47.101.155.205/image-20240823170603505.png)
+
+spring.cloud.gateway.actuator.verbose.enabled=false的效果如下
+
+![image-20240823171925548](http://47.101.155.205/image-20240823171925548.png)
+
+上面的json格式是因为使用配置创建的路由，接口创建路由以下面json格式为准。
+
+~~~json
+{
+  "id": "first_route",
+  "predicates": [{
+    "name": "Path",
+    "args": {"_genkey_0":"/first"}
+  }],
+  "filters": [],
+  "uri": "https://www.uri-destination.org",
+  "order": 0
+}
+
+~~~
+
+
+
+
+
+#### 15.5.查询特定路由的信息
+
+/actuator/gateway/routes/{route_id}
+
+![image-20240823170958270](http://47.101.155.205/image-20240823170958270.png)
+
+
+
+#### 15.6.创建/删除特定路由
+
+POST：/actuator/gateway/routes/{route_id}，请求体为JSON，以spring.cloud.gateway.actuator.verbose.enabled=false的查询路由信息Json格式为准；
+
+DELETE：/actuator/gateway/routes/{route_id}，删除路由；
+
+
+
+~~~json
+{
+    "route_id": "delay",
+    "route_definition": {
+        "id": "delay",
+        "predicates": [
+            {
+                "name": "Path",
+                "args": {
+                    "_genkey_0": "/delay/**"
+                }
+            }
+        ],
+        "filters": [],
+        "uri": "http://httpbin.org/",
+        "metadata": {},
+        "order": 0
+    },
+    "order": 0
+}
+
+~~~
+
+![image-20240823172541915](http://47.101.155.205/image-20240823172541915.png)
+
+![image-20240823173110791](http://47.101.155.205/image-20240823173110791.png)
+
+
+
+
+
+#### 15.7.
+
+![image-20240823171515170](http://47.101.155.205/image-20240823171515170.png)
