@@ -27,6 +27,7 @@
     </appender>
 
     <!-- 配置输出日志到File,使用大小和时间策略 -->
+    <!-- 不引用这个appender启动之后也会生成一个文件-->
     <appender name="FILE_SIZE" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <!-- 当前日志文件的名称 -->
         <!--<file>logs/logFile.log</file>-->
