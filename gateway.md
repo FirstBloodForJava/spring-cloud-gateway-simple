@@ -336,6 +336,10 @@ spring:
 
 //delya/**不会匹配到gateway的/delay/4请求，会匹配//delay/4请求。
 
+/delay/1的匹配规则，如果为true，则/delay/1/会被匹配，false则不会
+
+![image-20240826153418417](http://47.101.155.205/image-20240826153418417.png)
+
 ~~~yaml
 spring:
   cloud:
@@ -3087,13 +3091,13 @@ spring.cloud.gateway.actuator.verbose.enabled=false
 
 
 
-#### 15.3.刷新路由缓存
+### 15.3.刷新路由缓存
 
 Post：/actuator/gateway/refresh，没有响应体。
 
 
 
-#### 15.4.查询定义的所有路由信息
+### 15.4.查询定义的所有路由信息
 
 
 
@@ -3123,7 +3127,7 @@ spring.cloud.gateway.actuator.verbose.enabled=false的效果如下
 
 
 
-#### 15.5.查询特定路由的信息
+### 15.5.查询特定路由的信息
 
 /actuator/gateway/routes/{route_id}
 
@@ -3131,7 +3135,7 @@ spring.cloud.gateway.actuator.verbose.enabled=false的效果如下
 
 
 
-#### 15.6.创建/删除特定路由
+### 15.6.创建/删除特定路由
 
 POST：/actuator/gateway/routes/{route_id}，请求体为JSON，以spring.cloud.gateway.actuator.verbose.enabled=false的查询路由信息Json格式为准；
 
@@ -3170,6 +3174,371 @@ DELETE：/actuator/gateway/routes/{route_id}，删除路由；
 
 
 
-#### 15.7.
+### 15.7.所有端点接口
 
 ![image-20240823171515170](http://47.101.155.205/image-20240823171515170.png)
+
+
+
+
+
+### 15.8.在多个网关共享路由
+
+spring cloud gateway提供两个RouteDefinitionRepository(路由定义仓库)的实现类。一个是InMemoryRouteDefinitionRepository，仅保存在gateway的内存中，这个类型不能实现跨多个网关实例填充路由。
+
+在gateway集群中共享路由，RedisRouteDefinitionRepository可以实现。开启这个功能，需要开启spring.cloud.gateway.redis-route-definition-repository.enabled=true。引入spring-boot-starter-data-redis-reactive依赖。
+
+redis中的key有格式要求routedefinition_。
+
+![image-20240826135121656](http://47.101.155.205/image-20240826135121656.png)
+
+
+
+## 16.故障排除
+
+### 16.1.日志级别
+
+DEBUG和TRACE的日志级别消息，以下的包中，包含一个可用信息：
+
+1. org.springframework.cloud.gateway
+2. org.springframework.http.server.reactive
+3. org.springframework.web.reactive
+4. org.springframework.boot.autoconfigure.web
+5. reactor.netty
+6. redisratelimiter
+
+
+
+### 16.2.窃听请求/响应
+
+reactor.netty的日志级别设为DEBUG/TRACE，能够记录发送/接收的请求体和请求头。
+
+启用功能需要有以下配置。
+
+~~~properties
+spring.cloud.gateway.httpserver.wiretap=true
+spring.cloud.gateway.httpclient.wiretap=true
+
+~~~
+
+![image-20240826151107962](http://47.101.155.205/image-20240826151107962.png)
+
+
+
+
+
+## 17.开发指南
+
+
+
+### 17.1.自定义路由断言工厂
+
+实现RoutePredicateFactory接口，将对象作为Bean注入在容器中。也可以基于抽象类AbstractRoutePredicateFactory扩展。
+
+~~~java
+package com.example.springcloudgatewaysimple.predicate;
+
+import org.springframework.cloud.gateway.handler.predicate.AbstractRoutePredicateFactory;
+import org.springframework.core.style.ToStringCreator;
+import org.springframework.http.server.reactive.ServerHttpRequest;
+import org.springframework.web.server.ServerWebExchange;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.Predicate;
+
+/**
+ * @author ouyangcm
+ * create 2024/8/26 15:30
+ */
+public class MyRoutePredicateFactory extends AbstractRoutePredicateFactory<MyRoutePredicateFactory.Config> {
+
+    private static final String MATCH_TRAILING_SLASH = "matchTrailingSlash";
+
+    public MyRoutePredicateFactory() {
+        super(Config.class);
+    }
+
+    @Override
+    public Predicate<ServerWebExchange> apply(Config config) {
+        // 获取配置判断是否route
+        return exchange -> {
+            // 获取请求的信息
+            ServerHttpRequest request = exchange.getRequest();
+            // 后续做判断 请求是否和配置的信息匹配
+            return false;
+        };
+    }
+
+    public static class Config {
+        // 把配置过滤的信息配置在这里
+
+        private List<String> patterns = new ArrayList<>();
+
+        //
+        private boolean matchTrailingSlash = true;
+
+        public List<String> getPatterns() {
+            return patterns;
+        }
+
+        public MyRoutePredicateFactory.Config setPatterns(List<String> patterns) {
+            this.patterns = patterns;
+            return this;
+        }
+
+        public boolean isMatchTrailingSlash() {
+            return matchTrailingSlash;
+        }
+
+        public MyRoutePredicateFactory.Config setMatchTrailingSlash(boolean matchTrailingSlash) {
+            this.matchTrailingSlash = matchTrailingSlash;
+            return this;
+        }
+
+        @Override
+        public String toString() {
+            return new ToStringCreator(this).append("patterns", patterns)
+                    .append(MATCH_TRAILING_SLASH, matchTrailingSlash).toString();
+        }
+    }
+
+}
+
+
+~~~
+
+
+
+
+
+### 17.2.自定义过滤器工厂
+
+实现GatewayFilterFactory接口，作为Bean注入在容器中。可以继承抽象类AbstractGatewayFilterFactory实现。
+
+建议定义的类名以GatewayFilterFactory结尾，引用过滤器则使用GatewayFilterFactory之前的作为过滤器名称。也可以不按这个规则使用，后续可能会不支持。
+
+~~~java
+package com.example.springcloudgatewaysimple.filter.facotry;
+
+import org.springframework.cloud.gateway.filter.GatewayFilter;
+import org.springframework.cloud.gateway.filter.factory.AbstractGatewayFilterFactory;
+import org.springframework.http.server.reactive.ServerHttpRequest;
+
+/**
+ * 前置过滤器
+ * @author ouyangcm
+ * create 2024/8/27 15:27
+ */
+public class PreGatewayFilterFactory extends AbstractGatewayFilterFactory<PreGatewayFilterFactory.Config> {
+
+    public PreGatewayFilterFactory() {
+        super(Config.class);
+    }
+
+    @Override
+    public GatewayFilter apply(Config config) {
+        // grab configuration from Config object
+        return (exchange, chain) -> {
+            // If you want to build a "pre" filter you need to manipulate the request before calling chain.filter
+            // 在chain.filter之前执行代码的是前置过滤器
+            ServerHttpRequest.Builder builder = exchange.getRequest().mutate();
+            //use builder to manipulate the request
+            return chain.filter(exchange.mutate().request(builder.build()).build());
+        };
+    }
+
+    public static class Config {
+        // 存放定义过滤器的配置属性内容
+    }
+
+}
+
+~~~
+
+
+
+~~~java
+package com.example.springcloudgatewaysimple.filter.facotry;
+
+import org.springframework.cloud.gateway.filter.GatewayFilter;
+import org.springframework.cloud.gateway.filter.factory.AbstractGatewayFilterFactory;
+import org.springframework.http.server.reactive.ServerHttpResponse;
+import reactor.core.publisher.Mono;
+
+/**
+ * 后置过滤器
+ * @author ouyangcm
+ * create 2024/8/27 15:33
+ */
+public class PostGatewayFilterFactory extends AbstractGatewayFilterFactory<PostGatewayFilterFactory.Config> {
+
+    public PostGatewayFilterFactory() {
+        super(Config.class);
+    }
+
+    @Override
+    public GatewayFilter apply(Config config) {
+        // grab configuration from Config object
+        return (exchange, chain) -> {
+            // chain.filter(exchange)之后执行的是后置过滤器
+            return chain.filter(exchange).then(Mono.fromRunnable(() -> {
+                ServerHttpResponse response = exchange.getResponse();
+                //Manipulate the response in some way
+            }));
+        };
+    }
+
+    public static class Config {
+        //放定义过滤器的属性
+    }
+
+}
+
+~~~
+
+
+
+### 17.3.自定义全局过滤器
+
+实现GlobalFilter接口，并作为Bean注入到容器中。
+
+#### 17.3.1
+
+~~~java
+package com.example.springcloudgatewaysimple.filter;
+
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+import org.springframework.cloud.gateway.filter.GatewayFilterChain;
+import org.springframework.cloud.gateway.filter.GlobalFilter;
+import org.springframework.core.Ordered;
+import org.springframework.web.server.ServerWebExchange;
+import reactor.core.publisher.Mono;
+
+import java.net.InetSocketAddress;
+
+/**
+ * @author ouyangcm
+ * create 2024/8/16 9:20
+ */
+public class CustomGlobalFilter implements GlobalFilter, Ordered {
+
+    private Log log = LogFactory.getLog(this.getClass());
+
+    @Override
+    public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+        InetSocketAddress remoteAddress = exchange.getRequest().getRemoteAddress();
+        if (remoteAddress != null) {
+            log.info("custom global filter, address: " + remoteAddress.getAddress() + ", port: " + remoteAddress.getPort());
+        }else {
+            log.info("custom global filter, remoteAddress is null" );
+        }
+
+        return chain.filter(exchange);
+    }
+
+    @Override
+    public int getOrder() {
+        return -1;
+    }
+}
+
+~~~
+
+
+
+#### 17.3.2
+
+~~~java
+@Bean
+public GlobalFilter customGlobalFilter() {
+    return (exchange, chain) -> exchange.getPrincipal()
+        .map(Principal::getName)
+        .defaultIfEmpty("Default User")
+        .map(userName -> {
+          //adds header to proxied request
+          exchange.getRequest().mutate().header("CUSTOM-REQUEST-HEADER", userName).build();
+          return exchange;
+        })
+        .flatMap(chain::filter);
+}
+
+@Bean
+public GlobalFilter customGlobalPostFilter() {
+    return (exchange, chain) -> chain.filter(exchange)
+        .then(Mono.just(exchange))
+        .map(serverWebExchange -> {
+          //adds header to response
+          serverWebExchange.getResponse().getHeaders().set("CUSTOM-RESPONSE-HEADER",
+              HttpStatus.OK.equals(serverWebExchange.getResponse().getStatusCode()) ? "It worked": "It did not work");
+          return serverWebExchange;
+        })
+        .then();
+}
+
+~~~
+
+
+
+## 18.不使用配置构建gateway
+
+引入spring-cloud-gateway-mvc或spring-cloud-gateway-webflux的依赖
+
+~~~xml
+<!-- spring-cloud-gateway-webflux 依赖 -->
+<dependency>
+	<groupId>org.springframework.cloud</groupId>
+	<artifactId>spring-cloud-gateway-webflux</artifactId>
+	<version>3.1.0</version>
+</dependency>
+
+~~~
+
+gateway作为一个controller处理请求，使用ProxyExchange对请求进行后续处理。转发请求到下游之前，添加请求参数，请求头添加参数等。
+
+默认情况下支持cookie和authorization的请求头，但是不支持x-forwarded-*代理相关的请求头。
+
+![image-20240827161954748](http://47.101.155.205/image-20240827161954748.png)
+
+~~~java
+package com.example.springcloudgatewaysimple;
+
+import com.example.springcloudgatewaysimple.config.UriConfiguration;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.cloud.gateway.webflux.ProxyExchange;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+import reactor.core.publisher.Mono;
+
+@SpringBootApplication
+@EnableConfigurationProperties(UriConfiguration.class)
+@RestController
+public class SpringCloudGatewaySimpleApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(SpringCloudGatewaySimpleApplication.class, args);
+    }
+
+    @Value("${remote.home:http://httpbin.org}")
+    private String host;
+
+    @GetMapping("/test")
+    public Mono<ResponseEntity<byte[]>> proxy(ProxyExchange<byte[]> proxy) throws Exception {
+        return proxy.uri(host+ "/get").get();
+    }
+}
+
+~~~
+
+
+
+
+
+## 19.其他配置项介绍
+
+https://docs.spring.io/spring-cloud-gateway/docs/3.1.0/reference/html/appendix.html
