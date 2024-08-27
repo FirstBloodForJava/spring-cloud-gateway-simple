@@ -1,14 +1,20 @@
 package com.example.springcloudgatewaysimple.filter;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.springframework.cloud.gateway.filter.GatewayFilter;
 import org.springframework.cloud.gateway.filter.factory.AbstractGatewayFilterFactory;
+import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
+
+import java.nio.charset.StandardCharsets;
 
 /**
  * @author ouyangcm
@@ -16,6 +22,8 @@ import reactor.core.publisher.Mono;
  */
 @Component
 public class CustomCorsFilterGatewayFilterFactory extends AbstractGatewayFilterFactory<CustomCorsFilterGatewayFilterFactory.Config> {
+
+    private Log log = LogFactory.getLog(this.getClass());
 
     public CustomCorsFilterGatewayFilterFactory() {
         super(Config.class);
@@ -26,6 +34,19 @@ public class CustomCorsFilterGatewayFilterFactory extends AbstractGatewayFilterF
         return (exchange, chain) -> {
             ServerHttpRequest request = exchange.getRequest();
             ServerHttpResponse response = exchange.getResponse();
+            if (idDenyRequest(request)) {
+                log.info("拒绝请求: " + request.getURI().getRawPath());
+                // return exchange.getResponse().setComplete(); // 响应体为空
+
+                response.getHeaders().add(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE);
+
+                // 创建自定义的响应内容
+                String responseBody = "{\"message\": \"Custom Filter deny request\"}";
+
+                // 将内容写入响应体
+                DataBuffer buffer = response.bufferFactory().wrap(responseBody.getBytes(StandardCharsets.UTF_8));
+                return response.writeWith(Mono.just(buffer));
+            }
 
             // 处理预检请求
             if (HttpMethod.OPTIONS.equals(request.getMethod())) {
@@ -46,6 +67,13 @@ public class CustomCorsFilterGatewayFilterFactory extends AbstractGatewayFilterF
 
             return chain.filter(exchange);
         };
+    }
+
+    private boolean idDenyRequest(ServerHttpRequest request) {
+        if (request.getURI().getRawPath().contains("/close")) {
+            return true;
+        }
+        return false;
     }
 
     public static class Config {

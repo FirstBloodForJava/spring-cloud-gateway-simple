@@ -3399,6 +3399,12 @@ public class PostGatewayFilterFactory extends AbstractGatewayFilterFactory<PostG
 
 
 
+#### 17.2.1网关拒绝请求
+
+![image-20240827165407346](http://47.101.155.205/image-20240827165407346.png)
+
+
+
 ### 17.3.自定义全局过滤器
 
 实现GlobalFilter接口，并作为Bean注入到容器中。
