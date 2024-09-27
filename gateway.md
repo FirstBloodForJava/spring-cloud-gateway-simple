@@ -2,6 +2,8 @@
 
 不同版本文档：https://docs.spring.io/spring-cloud-gateway/docs/
 
+当前文档版本：https://docs.spring.io/spring-cloud-gateway/docs/3.1.0/reference/html/
+
 ~~~pom
 <dependency>
 	<groupId>org.springframework.cloud</groupId>
