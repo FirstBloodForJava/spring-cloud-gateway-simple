@@ -11,6 +11,7 @@ import org.springframework.web.util.pattern.PathPatternParser;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -59,10 +60,19 @@ public class SpringCloudGatewaySimpleApplicationTests {
                         response -> assertThat(response.getResponseBody()).isEqualTo("demo".getBytes()));
     }
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws InstantiationException, IllegalAccessException {
 
-        testPathPatternParser(true, "/get/1/");
+        //testPathPatternParser(true, "/get/1/");
+        List<Map<String,String>> list = getList();
+        System.out.println(list.get(0));
 
+
+    }
+    public static List getList(){
+        List<String> list = new ArrayList<>();
+
+        list.add("1");
+        return list;
     }
 
     public static void testPathPatternParser(boolean matchTrailingSlash, String path){

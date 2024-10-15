@@ -3550,3 +3550,11 @@ public class SpringCloudGatewaySimpleApplication {
 ## 19.其他配置项介绍
 
 https://docs.spring.io/spring-cloud-gateway/docs/3.1.0/reference/html/appendix.html
+
+
+
+## 20.搭配nacos服务发现
+
+404状态码，服务未注册在nacos中。
+
+500状态码，服务注册在nacos中，但是停止了。
