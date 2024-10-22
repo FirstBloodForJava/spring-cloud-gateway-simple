@@ -1419,7 +1419,7 @@ bin/logstash -f config/first-pipeline.conf --config.reload.automatic
 
 ~~~
 
-![image-20240911103957579](C:\Users\lenovo\AppData\Roaming\Typora\typora-user-images\image-20240911103957579.png)
+![image-20240911103957579](http://47.101.155.205/image-20240911103957579.png)
 
 ~~~yml
 # 这里设置前置顺序执行，需要pipeline.workers改为1，默认应该是2启动的，有冲突
@@ -1428,4 +1428,4 @@ pipeline.workers: 1
 
 ~~~
 
-![image-20240911110322473](C:\Users\lenovo\AppData\Roaming\Typora\typora-user-images\image-20240911110322473.png)
+![image-20240911110322473](http://47.101.155.205/image-20240911110322473.png)
