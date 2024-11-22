@@ -2666,23 +2666,27 @@ log.xml配置标签块：
 4. pattern：定义日志的输出格式；
    1. %d{日期格式}：打印时间；
    2. %thread：线程名称；
-   3. %level：日志级别，%-5level不够5个字符，后面空格结束；
-   4. %msg：日志消息；
-   5. %n：换行符；
-   6. %logger{length}：日志记录器名称，length限制长度；
-   7. %class：日志记录器名称(全路径名称)；
-   8. %file：触发日志的源文件名；
-   9. %M：触发日志的代码方法名；
-   10. %L：触发日志的源文件行号；
-   11. %line：触发日志的源文件行号；
-   12. %X{traceId}：
-   13. %X{spanId}：
+   3. %num1.num2t：线程名称的最长长度是num2，长度不足num1长度，前面补空格；
+   4. %-num1.num2t：线程名称的最长长度是num2，长度不足num1长度，后面补空格；
+   5. %level：日志级别，%-5level不够5个字符，后面空格结束；
+   6. %msg：日志消息；
+   7. %n：换行符；
+   8. %logger{length}：日志记录器名称，length限制长度；
+   9. %class：日志记录器名称(全路径名称)；
+   10. %file：触发日志的源文件名；
+   11. %M：触发日志的代码方法名；
+   12. %L：触发日志的源文件行号；
+   13. %line：触发日志的源文件行号；
+   14. ${PID}：获取程序的pid；
+   15. %X{traceId}：结合spring-cloud-starter-sleuth使用；
+   16. %X{spanId}：结合spring-cloud-starter-sleuth使用；
+   17. %clr(日志内容) [{magenta}]：定义日志内容的颜色，%clr(%d{yyyy-MM-dd HH:mm:ss.SSS}){faint}
 5. logger：指定特定包或类的日志级别和输出目标；
    1. name：控制包或类；
    2. level：控制日志级别；
    3. additivity：默认true，会将该logger的记录传递到父级Logger，false则不会；，例如其中一个logger1(假如配置包为com.org.controller)指向一个输出至指定文件，如果不继承，则如果有另一个logger(com.org)则这个日志只会输出至logger1的位置，继承则会logger1使用其配置输出，在logger以其配置输出；
    4. appender-ref：指向输出目标，appender的name；
-6. 日志级别：TRACE、DEBUD、INFO、WARN、ERROR由低到高，设置日志级别意味着低于此级别的日志不会输出，例如设置为WARN，INFO级别的日志不会输出；
+6. 日志级别：TRACE、DEBUG、INFO、WARN、ERROR由低到高，设置日志级别意味着低于此级别的日志不会输出，例如设置为WARN，INFO级别的日志不会输出；
 
 
 
